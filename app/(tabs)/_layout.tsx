@@ -1,60 +1,55 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { Platform } from 'react-native';
+import { Platform, View, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { useClientOnlyValue } from '@/components/useClientOnlyValue';
+import { useLanguage } from '@/context/LanguageContext';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? 'light'];
+  const insets = useSafeAreaInsets();
+  const { t } = useLanguage();
+
+  // Ensure plenty of safe clearance above Android system navbar / gesture bar
+  const bottomInset = insets.bottom > 0 ? insets.bottom : (Platform.OS === 'android' ? 18 : 0);
+  const tabBarHeight = 60 + bottomInset;
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: theme.tint,
-        tabBarInactiveTintColor: theme.tabIconDefault,
+        tabBarActiveTintColor: '#16a34a',
+        tabBarInactiveTintColor: '#64748b',
         tabBarStyle: {
           backgroundColor: theme.card,
           borderTopColor: theme.border,
           borderTopWidth: 1,
-          height: Platform.OS === 'ios' ? 88 : 64,
-          paddingBottom: Platform.OS === 'ios' ? 28 : 10,
-          paddingTop: 8,
-          elevation: 8,
+          height: tabBarHeight,
+          paddingBottom: bottomInset + 4,
+          paddingTop: 6,
+          elevation: 12,
           shadowColor: '#000',
-          shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.06,
-          shadowRadius: 6,
+          shadowOffset: { width: 0, height: -3 },
+          shadowOpacity: 0.08,
+          shadowRadius: 8,
         },
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: '600',
         },
-        headerStyle: {
-          backgroundColor: theme.card,
-          elevation: 0,
-          shadowOpacity: 0,
-          borderBottomWidth: 1,
-          borderBottomColor: theme.border,
-        },
-        headerTitleStyle: {
-          fontSize: 18,
-          fontWeight: '700',
-          color: theme.text,
-        },
-        headerShown: useClientOnlyValue(false, true),
+        headerShown: false, // The dashboard has its own custom branded header matching the reference design!
       }}>
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Dashboard',
+          title: t.tabHome,
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
-              name={focused ? 'grid' : 'grid-outline'}
-              size={24}
+              name={focused ? 'home' : 'home-outline'}
+              size={23}
               color={color}
             />
           ),
@@ -63,11 +58,35 @@ export default function TabLayout() {
       <Tabs.Screen
         name="farm"
         options={{
-          title: 'My Farm',
+          title: t.tabFarm,
           tabBarIcon: ({ color, focused }) => (
             <MaterialCommunityIcons
               name={focused ? 'sprout' : 'sprout-outline'}
-              size={26}
+              size={25}
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="scan"
+        options={{
+          title: t.tabScan,
+          tabBarIcon: () => (
+            <View style={styles.floatingCenterBtn}>
+              <Ionicons name="camera" size={26} color="#ffffff" />
+            </View>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="market"
+        options={{
+          title: t.tabMarket,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'storefront' : 'storefront-outline'}
+              size={23}
               color={color}
             />
           ),
@@ -76,11 +95,11 @@ export default function TabLayout() {
       <Tabs.Screen
         name="settings"
         options={{
-          title: 'Settings',
+          title: t.tabProfile,
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
-              name={focused ? 'settings' : 'settings-outline'}
-              size={24}
+              name={focused ? 'person' : 'person-outline'}
+              size={23}
               color={color}
             />
           ),
@@ -89,3 +108,22 @@ export default function TabLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  floatingCenterBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#16a34a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -22,
+    elevation: 8,
+    shadowColor: '#16a34a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    borderWidth: 3,
+    borderColor: '#ffffff',
+  },
+});

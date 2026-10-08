@@ -1,187 +1,463 @@
-import React, { useState } from 'react';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { useState } from 'react';
 import {
+  Image,
+  Platform,
+  ScrollView,
   StyleSheet,
   Text,
-  View,
-  ScrollView,
   TouchableOpacity,
-  Switch,
-  Platform,
+  View,
 } from 'react-native';
-import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
-import Colors from '@/constants/Colors';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import { useColorScheme } from '@/components/useColorScheme';
+import Colors from '@/constants/Colors';
+import { useLanguage } from '@/context/LanguageContext';
 
 export default function DashboardScreen() {
+  const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? 'light'];
-  const [irrigationActive, setIrrigationActive] = useState(true);
+  const { t } = useLanguage();
+
+  // Interactive Farm Tasks State (persists completion state while translating title)
+  const [completedTaskIds, setCompletedTaskIds] = useState<string[]>(['1']);
+
+  const farmTasks = [
+    { id: '1', title: t.task1 },
+    { id: '2', title: t.task2 },
+    { id: '3', title: t.task3 },
+    { id: '4', title: t.task4 },
+  ];
+
+  const toggleTask = (id: string) => {
+    setCompletedTaskIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
 
   return (
     <ScrollView
-      style={[styles.container, { backgroundColor: theme.background }]}
-      contentContainerStyle={styles.contentContainer}
+      style={[styles.container, { backgroundColor: '#f8fafc' }]}
+      contentContainerStyle={[
+        styles.contentContainer,
+        { paddingTop: 12, paddingBottom: 40 },
+      ]}
       showsVerticalScrollIndicator={false}>
-      {/* Header Banner */}
-      <View style={[styles.welcomeCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <View style={styles.welcomeRow}>
-          <View>
-            <Text style={[styles.greetingText, { color: theme.subtext }]}>Welcome back,</Text>
-            <Text style={[styles.farmerName, { color: theme.text }]}>Krushi Mitra 🌾</Text>
-            <View style={styles.locationRow}>
-              <Ionicons name="location-sharp" size={14} color={theme.tint} />
-              <Text style={[styles.locationText, { color: theme.subtext }]}>Plot #4 • Green Valley Farm</Text>
+      {/* 1. App Header */}
+      <View style={styles.headerRow}>
+        <View style={styles.brandCol}>
+          <View style={styles.logoRow}>
+            <MaterialCommunityIcons name="sprout" size={28} color="#16a34a" />
+            <Text style={styles.brandTitle}>KrushiAR</Text>
+          </View>
+          <Text style={styles.brandTagline}>{t.tagline}</Text>
+        </View>
+
+        <View style={styles.headerRightRow}>
+          {/* Location Chip */}
+          <TouchableOpacity style={styles.locationChip}>
+            <Ionicons name="location-sharp" size={14} color="#16a34a" />
+            <View style={{ marginLeft: 3 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={styles.locationCity}>{t.chopda},</Text>
+                <Ionicons name="chevron-down" size={11} color="#0f172a" style={{ marginLeft: 2 }} />
+              </View>
+              <Text style={styles.locationDistrict}>{t.jalgaon}</Text>
             </View>
-          </View>
-          <View style={[styles.weatherBadge, { backgroundColor: theme.tintLight }]}>
-            <Ionicons name="partly-sunny" size={24} color={theme.tint} />
-            <Text style={[styles.weatherTemp, { color: theme.tint }]}>29°C</Text>
-            <Text style={[styles.weatherCondition, { color: theme.tint }]}>Sunny</Text>
-          </View>
+          </TouchableOpacity>
+
+          {/* Notification Bell */}
+          <TouchableOpacity style={styles.bellBtn}>
+            <Ionicons name="notifications-outline" size={22} color="#1e293b" />
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>3</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Profile Avatar */}
+          <TouchableOpacity onPress={() => router.push('/(tabs)/settings')}>
+            <Image
+              source={{ uri: 'https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?w=200&q=80' }}
+              style={styles.avatarImg}
+            />
+          </TouchableOpacity>
         </View>
       </View>
 
-      {/* Real-time Field Metrics */}
-      <Text style={[styles.sectionTitle, { color: theme.text }]}>Real-Time Field Telemetry</Text>
-      <View style={styles.metricsGrid}>
-        {/* Metric 1 */}
-        <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={[styles.iconWrap, { backgroundColor: '#e0f2fe' }]}>
-            <Ionicons name="water" size={22} color="#0284c7" />
-          </View>
-          <Text style={[styles.metricValue, { color: theme.text }]}>68%</Text>
-          <Text style={[styles.metricLabel, { color: theme.subtext }]}>Soil Moisture</Text>
-          <Text style={[styles.metricStatus, { color: '#16a34a' }]}>● Optimal</Text>
+      {/* 2. Hero Banner */}
+      <View style={styles.heroBanner}>
+        <View style={styles.heroTextCol}>
+          <Text style={styles.heroTitle}>{t.heroTitle}</Text>
+          <Text style={styles.heroSubtitle}>{t.heroSub}</Text>
         </View>
-
-        {/* Metric 2 */}
-        <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={[styles.iconWrap, { backgroundColor: '#fef3c7' }]}>
-            <Ionicons name="thermometer" size={22} color="#d97706" />
-          </View>
-          <Text style={[styles.metricValue, { color: theme.text }]}>31°C</Text>
-          <Text style={[styles.metricLabel, { color: theme.subtext }]}>Soil Temp</Text>
-          <Text style={[styles.metricStatus, { color: '#16a34a' }]}>● Normal</Text>
-        </View>
-
-        {/* Metric 3 */}
-        <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={[styles.iconWrap, { backgroundColor: '#dcfce7' }]}>
-            <MaterialCommunityIcons name="heart-pulse" size={22} color="#16a34a" />
-          </View>
-          <Text style={[styles.metricValue, { color: theme.text }]}>96%</Text>
-          <Text style={[styles.metricLabel, { color: theme.subtext }]}>NDVI Index</Text>
-          <Text style={[styles.metricStatus, { color: '#16a34a' }]}>● Healthy</Text>
-        </View>
-
-        {/* Metric 4 */}
-        <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={[styles.iconWrap, { backgroundColor: '#fae8ff' }]}>
-            <MaterialCommunityIcons name="molecule" size={22} color="#9333ea" />
-          </View>
-          <Text style={[styles.metricValue, { color: theme.text }]}>6.8 pH</Text>
-          <Text style={[styles.metricLabel, { color: theme.subtext }]}>Soil Acidity</Text>
-          <Text style={[styles.metricStatus, { color: '#16a34a' }]}>● Balanced</Text>
-        </View>
-      </View>
-
-      {/* Smart Irrigation Automation */}
-      <View style={[styles.irrigationCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <View style={styles.irrigationInfo}>
-          <View style={[styles.iconCircle, { backgroundColor: theme.tintLight }]}>
-            <Ionicons name="hardware-chip-outline" size={24} color={theme.tint} />
-          </View>
-          <View style={styles.irrigationTextCol}>
-            <Text style={[styles.irrigationTitle, { color: theme.text }]}>Smart Drip Irrigation</Text>
-            <Text style={[styles.irrigationSub, { color: theme.subtext }]}>
-              {irrigationActive ? 'Valve #2 Active (Flow: 18 L/min)' : 'System Standby'}
-            </Text>
-          </View>
-        </View>
-        <Switch
-          value={irrigationActive}
-          onValueChange={setIrrigationActive}
-          trackColor={{ false: '#cbd5e1', true: '#86efac' }}
-          thumbColor={irrigationActive ? theme.tint : '#f1f5f9'}
+        <Image
+          source={{ uri: 'https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?w=400&q=80' }}
+          style={styles.heroFarmerImg}
         />
       </View>
 
-      {/* Quick Action Buttons */}
-      <Text style={[styles.sectionTitle, { color: theme.text }]}>Quick Farm Actions</Text>
-      <View style={styles.actionsRow}>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={[styles.actionIconWrap, { backgroundColor: '#ecfdf5' }]}>
-            <MaterialCommunityIcons name="augmented-reality" size={24} color="#059669" />
+      {/* 3. Weather Card */}
+      <View style={styles.weatherCard}>
+        <View style={styles.weatherLeft}>
+          <View style={styles.weatherIconTemp}>
+            <Ionicons name="sunny" size={28} color="#f59e0b" />
+            <Text style={styles.weatherTemp}>32°C</Text>
           </View>
-          <Text style={[styles.actionBtnLabel, { color: theme.text }]}>AR Scan</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={[styles.actionIconWrap, { backgroundColor: '#eff6ff' }]}>
-            <MaterialCommunityIcons name="drone" size={24} color="#2563eb" />
-          </View>
-          <Text style={[styles.actionBtnLabel, { color: theme.text }]}>Drone Map</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={[styles.actionIconWrap, { backgroundColor: '#fef2f2' }]}>
-            <MaterialCommunityIcons name="bug-outline" size={24} color="#dc2626" />
-          </View>
-          <Text style={[styles.actionBtnLabel, { color: theme.text }]}>Pest Scan</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={[styles.actionIconWrap, { backgroundColor: '#fffbeb' }]}>
-            <FontAwesome5 name="seedling" size={20} color="#d97706" />
-          </View>
-          <Text style={[styles.actionBtnLabel, { color: theme.text }]}>Soil Test</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Daily Agricultural Advisory & Alerts */}
-      <Text style={[styles.sectionTitle, { color: theme.text }]}>Advisory & Tasks</Text>
-      <View style={[styles.taskCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <View style={styles.taskItem}>
-          <View style={[styles.taskDot, { backgroundColor: '#f59e0b' }]} />
-          <View style={styles.taskTextCol}>
-            <Text style={[styles.taskHeading, { color: theme.text }]}>Nitrogen Top-Dressing</Text>
-            <Text style={[styles.taskDesc, { color: theme.subtext }]}>
-              Cotton Field Plot A: Day 65 booster cycle due tomorrow.
-            </Text>
-          </View>
+          <Text style={styles.weatherCondition}>{t.partlyCloudy}</Text>
         </View>
 
-        <View style={[styles.taskDivider, { backgroundColor: theme.border }]} />
+        <View style={styles.weatherMetricsRow}>
+          <View style={styles.weatherMetric}>
+            <View style={styles.metricValRow}>
+              <Ionicons name="water" size={12} color="#0284c7" />
+              <Text style={styles.metricValText}> 10%</Text>
+            </View>
+            <Text style={styles.metricLabel}>{t.rainChance}</Text>
+          </View>
 
-        <View style={styles.taskItem}>
-          <View style={[styles.taskDot, { backgroundColor: '#10b981' }]} />
-          <View style={styles.taskTextCol}>
-            <Text style={[styles.taskHeading, { color: theme.text }]}>Favorable Spray Weather</Text>
-            <Text style={[styles.taskDesc, { color: theme.subtext }]}>
-              Wind speed is below 6 km/h today between 4 PM - 6 PM.
-            </Text>
+          <View style={styles.weatherMetric}>
+            <View style={styles.metricValRow}>
+              <Ionicons name="water-outline" size={12} color="#0284c7" />
+              <Text style={styles.metricValText}> 58%</Text>
+            </View>
+            <Text style={styles.metricLabel}>{t.humidity}</Text>
+          </View>
+
+          <View style={styles.weatherMetric}>
+            <View style={styles.metricValRow}>
+              <MaterialCommunityIcons name="weather-windy" size={12} color="#0284c7" />
+              <Text style={styles.metricValText}> 12 km/h</Text>
+            </View>
+            <Text style={styles.metricLabel}>{t.windSpeed}</Text>
+          </View>
+
+          <View style={styles.weatherLocation}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons name="location-sharp" size={11} color="#0f172a" />
+              <Text style={styles.weatherLocName}> {t.chopda}</Text>
+            </View>
+            <Text style={styles.weatherLocSub}>{t.jalgaon}, MH</Text>
+            <Text style={styles.weatherDate}>Tue, 7 Oct 2026</Text>
           </View>
         </View>
       </View>
 
-      {/* Live APMC Mandi Rates */}
-      <Text style={[styles.sectionTitle, { color: theme.text }]}>Live Mandi Prices</Text>
-      <View style={styles.mandiScroll}>
-        <View style={[styles.mandiCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Text style={[styles.cropName, { color: theme.text }]}>Cotton (Kapas)</Text>
-          <Text style={[styles.cropPrice, { color: theme.tint }]}>₹7,250 / Qtl</Text>
-          <Text style={styles.pricePositive}>+2.4% Today</Text>
+      {/* 4. Quick Action Buttons Grid (4 items) */}
+      <View style={styles.quickGrid}>
+        <TouchableOpacity
+          style={[styles.quickCard, { backgroundColor: '#e8f5e9' }]}
+          onPress={() => router.push('/(tabs)/scan')}>
+          <View style={[styles.quickIconWrap, { backgroundColor: '#dcfce7' }]}>
+            <Ionicons name="camera" size={22} color="#16a34a" />
+          </View>
+          <Text style={styles.quickLabel}>{t.arScanCrops}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.quickCard, { backgroundColor: '#e0f2fe' }]}>
+          <View style={[styles.quickIconWrap, { backgroundColor: '#bae6fd' }]}>
+            <Ionicons name="water" size={22} color="#0284c7" />
+          </View>
+          <Text style={styles.quickLabel}>{t.irrigationGuide}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.quickCard, { backgroundColor: '#f0fdf4' }]}>
+          <View style={[styles.quickIconWrap, { backgroundColor: '#bbf7d0' }]}>
+            <MaterialCommunityIcons name="sprout" size={22} color="#16a34a" />
+          </View>
+          <Text style={styles.quickLabel}>{t.fertilizerRecommend}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.quickCard, { backgroundColor: '#fff8e1' }]}
+          onPress={() => router.push('/(tabs)/market')}>
+          <View style={[styles.quickIconWrap, { backgroundColor: '#fef3c7' }]}>
+            <MaterialCommunityIcons name="cash-multiple" size={22} color="#d97706" />
+          </View>
+          <Text style={styles.quickLabel}>{t.marketPrices}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 5. Side-by-Side: Today's Farm Tasks & Market Prices */}
+      <View style={styles.splitRow}>
+        {/* Left Card: Tasks */}
+        <View style={styles.splitCard}>
+          <View style={styles.splitHeader}>
+            <Text style={styles.splitTitle}>{t.todaysTasks}</Text>
+            <TouchableOpacity>
+              <Text style={styles.splitSeeAll}>{t.seeAll}</Text>
+            </TouchableOpacity>
+          </View>
+
+          {farmTasks.map((task) => {
+            const isDone = completedTaskIds.includes(task.id);
+            return (
+              <TouchableOpacity
+                key={task.id}
+                style={styles.taskCheckRow}
+                onPress={() => toggleTask(task.id)}>
+                <Ionicons
+                  name={isDone ? 'checkbox' : 'square-outline'}
+                  size={18}
+                  color={isDone ? '#16a34a' : '#94a3b8'}
+                />
+                <Text
+                  style={[
+                    styles.taskItemText,
+                    isDone && { textDecorationLine: 'line-through', color: '#94a3b8' },
+                  ]}>
+                  {task.title}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
-        <View style={[styles.mandiCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Text style={[styles.cropName, { color: theme.text }]}>Soybean</Text>
-          <Text style={[styles.cropPrice, { color: theme.tint }]}>₹4,820 / Qtl</Text>
-          <Text style={styles.pricePositive}>+0.8% Today</Text>
+
+        {/* Right Card: Market Prices */}
+        <View style={styles.splitCard}>
+          <View style={styles.splitHeader}>
+            <Text style={styles.splitTitle}>{t.marketPrices.replace('\n', ' ')}</Text>
+            <TouchableOpacity onPress={() => router.push('/(tabs)/market')}>
+              <Text style={styles.splitSeeAll}>{t.seeAll}</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.mandiSub}>{t.mandiDistrictSub}</Text>
+
+          {/* Soybean */}
+          <View style={styles.mandiItemRow}>
+            <View style={styles.mandiLeftCol}>
+              <View style={[styles.mandiIconDot, { backgroundColor: '#fef3c7' }]}>
+                <MaterialCommunityIcons name="seed" size={13} color="#d97706" />
+              </View>
+              <Text style={styles.mandiCropText}>{t.cropSoybean}</Text>
+            </View>
+            <View style={styles.mandiRightCol}>
+              <Text style={styles.mandiPriceText}>₹ 4,800</Text>
+              <Text style={styles.mandiRateGreen}>↑ 2%</Text>
+            </View>
+          </View>
+
+          {/* Cotton */}
+          <View style={styles.mandiItemRow}>
+            <View style={styles.mandiLeftCol}>
+              <View style={[styles.mandiIconDot, { backgroundColor: '#f1f5f9' }]}>
+                <MaterialCommunityIcons name="cloud" size={13} color="#64748b" />
+              </View>
+              <Text style={styles.mandiCropText}>{t.cropCotton}</Text>
+            </View>
+            <View style={styles.mandiRightCol}>
+              <Text style={styles.mandiPriceText}>₹ 7,200</Text>
+              <Text style={styles.mandiRateRed}>↓ 1%</Text>
+            </View>
+          </View>
+
+          {/* Maize */}
+          <View style={styles.mandiItemRow}>
+            <View style={styles.mandiLeftCol}>
+              <View style={[styles.mandiIconDot, { backgroundColor: '#fef9c3' }]}>
+                <MaterialCommunityIcons name="corn" size={13} color="#ca8a04" />
+              </View>
+              <Text style={styles.mandiCropText}>{t.cropMaize}</Text>
+            </View>
+            <View style={styles.mandiRightCol}>
+              <Text style={styles.mandiPriceText}>₹ 2,150</Text>
+              <Text style={styles.mandiRateGreen}>↑ 3%</Text>
+            </View>
+          </View>
+
+          {/* Onion */}
+          <View style={styles.mandiItemRow}>
+            <View style={styles.mandiLeftCol}>
+              <View style={[styles.mandiIconDot, { backgroundColor: '#fee2e2' }]}>
+                <MaterialCommunityIcons name="circle" size={13} color="#dc2626" />
+              </View>
+              <Text style={styles.mandiCropText}>{t.cropOnion}</Text>
+            </View>
+            <View style={styles.mandiRightCol}>
+              <Text style={styles.mandiPriceText}>₹ 1,850</Text>
+              <Text style={styles.mandiRateGreen}>↑ 5%</Text>
+            </View>
+          </View>
         </View>
-        <View style={[styles.mandiCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Text style={[styles.cropName, { color: theme.text }]}>Wheat (Sharbati)</Text>
-          <Text style={[styles.cropPrice, { color: theme.tint }]}>₹2,640 / Qtl</Text>
-          <Text style={styles.priceNegative}>-0.5% Today</Text>
+      </View>
+
+      {/* 6. "My Crops" Section */}
+      <View style={styles.sectionTitleRow}>
+        <Text style={styles.sectionHeading}>{t.myCrops}</Text>
+        <TouchableOpacity
+          style={styles.seeAllBtn}
+          onPress={() => router.push('/(tabs)/farm')}>
+          <Text style={styles.seeAllText}>{t.seeAll}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cropsScroll}>
+        {/* Crop 1: Soybean */}
+        <View style={styles.cropCard}>
+          <Image
+            source={{ uri: 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&q=80' }}
+            style={styles.cropImg}
+          />
+          <View style={styles.cropInfo}>
+            <Text style={styles.cropTitle}>{t.cropSoybean}</Text>
+            <Text style={styles.cropStage}>{t.stageVegetative}</Text>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: '40%', backgroundColor: '#16a34a' }]} />
+            </View>
+            <Text style={styles.cropDays}>25 {t.daysLeftText}</Text>
+          </View>
         </View>
+
+        {/* Crop 2: Cotton */}
+        <View style={styles.cropCard}>
+          <Image
+            source={{ uri: 'https://images.unsplash.com/photo-1606041008023-472dfb5e530f?w=400&q=80' }}
+            style={styles.cropImg}
+          />
+          <View style={styles.cropInfo}>
+            <Text style={styles.cropTitle}>{t.cropCotton}</Text>
+            <Text style={styles.cropStage}>{t.stageFlowering}</Text>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: '65%', backgroundColor: '#f59e0b' }]} />
+            </View>
+            <Text style={styles.cropDays}>45 {t.daysLeftText}</Text>
+          </View>
+        </View>
+
+        {/* Crop 3: Maize */}
+        <View style={styles.cropCard}>
+          <Image
+            source={{ uri: 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=400&q=80' }}
+            style={styles.cropImg}
+          />
+          <View style={styles.cropInfo}>
+            <Text style={styles.cropTitle}>{t.cropMaize}</Text>
+            <Text style={styles.cropStage}>{t.stageGrowing}</Text>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: '50%', backgroundColor: '#16a34a' }]} />
+            </View>
+            <Text style={styles.cropDays}>30 {t.daysLeftText}</Text>
+          </View>
+        </View>
+
+        {/* Crop 4: Onion */}
+        <View style={styles.cropCard}>
+          <Image
+            source={{ uri: 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=400&q=80' }}
+            style={styles.cropImg}
+          />
+          <View style={styles.cropInfo}>
+            <Text style={styles.cropTitle}>{t.cropOnion}</Text>
+            <Text style={styles.cropStage}>{t.stageLandPrep}</Text>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: '20%', backgroundColor: '#16a34a' }]} />
+            </View>
+            <Text style={styles.cropDays}>60 {t.daysLeftText}</Text>
+          </View>
+        </View>
+
+        {/* Add Crop Card */}
+        <TouchableOpacity
+          style={styles.addCropCard}
+          onPress={() => router.push('/(tabs)/farm')}>
+          <View style={styles.addCircle}>
+            <Ionicons name="add" size={26} color="#ffffff" />
+          </View>
+          <Text style={styles.addCropLabel}>{t.addCrop}</Text>
+        </TouchableOpacity>
+      </ScrollView>
+
+      {/* 7. Featured "AR Farm Scan" Card */}
+      <View style={styles.arBannerCard}>
+        <View style={styles.arLeftContent}>
+          <View style={styles.arBadge}>
+            <MaterialCommunityIcons name="line-scan" size={18} color="#ffffff" />
+            <Text style={styles.arBadgeText}>AR</Text>
+          </View>
+          <Text style={styles.arHeading}>{t.arFarmScan}</Text>
+          <Text style={styles.arDesc}>{t.arFarmScanDesc}</Text>
+          <TouchableOpacity
+            style={styles.arStartBtn}
+            onPress={() => router.push('/(tabs)/scan')}>
+            <Text style={styles.arStartBtnText}>{t.startScanning}</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.arScanGraphicWrap}>
+          <Image
+            source={{ uri: 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=300&q=80' }}
+            style={styles.arPreviewImg}
+          />
+          <View style={styles.arViewBox}>
+            <Text style={styles.arTag}>AR</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* 8. Government Schemes & Agri Products Cards */}
+      <View style={styles.twoCardsRow}>
+        <TouchableOpacity style={[styles.bannerCardItem, { backgroundColor: '#fff1f2', borderColor: '#ffe4e6' }]}>
+          <View style={[styles.bannerCardIconWrap, { backgroundColor: '#ffe4e6' }]}>
+            <Ionicons name="business" size={20} color="#e11d48" />
+          </View>
+          <View style={styles.bannerCardTextWrap}>
+            <Text style={styles.bannerCardTitle}>{t.govtSchemes}</Text>
+            <Text style={styles.bannerCardDesc}>{t.govtSchemesSub}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="#e11d48" />
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.bannerCardItem, { backgroundColor: '#fffbeb', borderColor: '#fef3c7' }]}>
+          <View style={[styles.bannerCardIconWrap, { backgroundColor: '#fef3c7' }]}>
+            <Ionicons name="cart" size={20} color="#f59e0b" />
+          </View>
+          <View style={styles.bannerCardTextWrap}>
+            <Text style={styles.bannerCardTitle}>{t.agriProducts}</Text>
+            <Text style={styles.bannerCardDesc}>{t.agriProductsSub}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="#f59e0b" />
+        </TouchableOpacity>
+      </View>
+
+      {/* 9. Quick Services Row */}
+      <View style={styles.tripleServicesRow}>
+        <TouchableOpacity style={[styles.servicePillCard, { backgroundColor: '#eff6ff', borderColor: '#dbeafe' }]}>
+          <View style={[styles.serviceIconWrap, { backgroundColor: '#bfdbfe' }]}>
+            <Ionicons name="bar-chart" size={18} color="#2563eb" />
+          </View>
+          <Text style={styles.servicePillTitle}>{t.farmAnalytics}</Text>
+          <Text style={styles.servicePillDesc}>{t.farmAnalyticsSub}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.servicePillCard, { backgroundColor: '#f0f9ff', borderColor: '#e0f2fe' }]}>
+          <View style={[styles.serviceIconWrap, { backgroundColor: '#bae6fd' }]}>
+            <Ionicons name="rainy" size={18} color="#0284c7" />
+          </View>
+          <Text style={styles.servicePillTitle}>{t.weatherAdvisory}</Text>
+          <Text style={styles.servicePillDesc}>{t.weatherAdvisorySub}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 10. Bottom Promo Banner */}
+      <View style={styles.bottomPromoCard}>
+        <Image
+          source={{ uri: 'https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?w=300&q=80' }}
+          style={styles.promoFarmerThumb}
+        />
+        <View style={styles.promoTextWrap}>
+          <View style={styles.promoHeadRow}>
+            <Ionicons name="bulb" size={16} color="#f59e0b" />
+            <Text style={styles.promoTitle}> {t.promoTitle}</Text>
+          </View>
+          <Text style={styles.promoDesc}>{t.promoDesc}</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.promoBtn}
+          onPress={() => router.push('/(tabs)/scan')}>
+          <Text style={styles.promoBtnText}>{t.tryNow}</Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -192,239 +468,612 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    padding: 16,
-    paddingBottom: 32,
+    paddingHorizontal: 14,
   },
-  welcomeCard: {
-    borderRadius: 16,
-    padding: 18,
-    borderWidth: 1,
-    marginBottom: 20,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  welcomeRow: {
+  /* Header */
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 12,
   },
-  greetingText: {
-    fontSize: 13,
-    fontWeight: '500',
+  brandCol: {
+    justifyContent: 'center',
   },
-  farmerName: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  locationRow: {
+  logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 6,
     gap: 4,
   },
-  locationText: {
-    fontSize: 12,
+  brandTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0f172a',
+    letterSpacing: -0.3,
   },
-  weatherBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
+  brandTagline: {
+    fontSize: 9.5,
+    color: '#64748b',
+    marginTop: 1,
+  },
+  headerRightRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    minWidth: 70,
+    gap: 8,
+  },
+  locationChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  locationCity: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  locationDistrict: {
+    fontSize: 9,
+    color: '#64748b',
+  },
+  bellBtn: {
+    position: 'relative',
+    padding: 6,
+  },
+  badge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: '#ef4444',
+    borderRadius: 8,
+    minWidth: 15,
+    height: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  badgeText: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  avatarImg: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+  },
+
+  /* Hero Banner */
+  heroBanner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  heroTextCol: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  heroTitle: {
+    fontSize: 21,
+    fontWeight: '800',
+    color: '#0f172a',
+    lineHeight: 27,
+  },
+  heroSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#475569',
+    lineHeight: 17,
+    marginTop: 6,
+  },
+  heroFarmerImg: {
+    width: 100,
+    height: 90,
+    borderRadius: 12,
+  },
+
+  /* Weather Card */
+  weatherCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4 },
+      android: { elevation: 1 },
+    }),
+  },
+  weatherLeft: {
+    paddingRight: 10,
+    borderRightWidth: 1,
+    borderRightColor: '#f1f5f9',
+  },
+  weatherIconTemp: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   weatherTemp: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginTop: 2,
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#0f172a',
   },
   weatherCondition: {
     fontSize: 11,
-    fontWeight: '600',
+    color: '#64748b',
+    marginTop: 2,
   },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    marginBottom: 12,
-    marginTop: 8,
-  },
-  metricsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 20,
-  },
-  metricCard: {
+  weatherMetricsRow: {
     flex: 1,
-    minWidth: '46%',
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 1,
-      },
-    }),
-  },
-  iconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
+    paddingLeft: 6,
   },
-  metricValue: {
-    fontSize: 18,
+  weatherMetric: {
+    alignItems: 'center',
+  },
+  metricValRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  metricValText: {
+    fontSize: 12,
     fontWeight: '700',
+    color: '#0f172a',
   },
   metricLabel: {
-    fontSize: 12,
+    fontSize: 9.5,
+    color: '#64748b',
     marginTop: 2,
   },
-  metricStatus: {
+  weatherLocation: {
+    alignItems: 'flex-end',
+  },
+  weatherLocName: {
     fontSize: 11,
-    fontWeight: '600',
-    marginTop: 4,
+    fontWeight: '700',
+    color: '#0f172a',
   },
-  irrigationCard: {
+  weatherLocSub: {
+    fontSize: 9,
+    color: '#64748b',
+  },
+  weatherDate: {
+    fontSize: 9,
+    color: '#94a3b8',
+    marginTop: 1,
+  },
+
+  /* Quick Actions (6 items) */
+  quickGrid: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-    marginBottom: 20,
+    marginBottom: 16,
+    gap: 6,
   },
-  irrigationInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+  quickCard: {
     flex: 1,
-  },
-  iconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  irrigationTextCol: {
-    flex: 1,
-  },
-  irrigationTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  irrigationSub: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 10,
-    marginBottom: 20,
-  },
-  actionBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: 'center',
-  },
-  actionIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  quickIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 6,
   },
-  actionBtnLabel: {
-    fontSize: 11,
+  quickLabel: {
+    fontSize: 9.5,
     fontWeight: '600',
+    color: '#1e293b',
     textAlign: 'center',
+    lineHeight: 13,
   },
-  taskCard: {
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    marginBottom: 20,
-  },
-  taskItem: {
+
+  /* Section Title */
+  sectionTitleRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  taskDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginTop: 5,
-  },
-  taskTextCol: {
-    flex: 1,
-  },
-  taskHeading: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  taskDesc: {
-    fontSize: 12,
-    marginTop: 2,
-    lineHeight: 18,
-  },
-  taskDivider: {
-    height: 1,
-    marginVertical: 12,
-  },
-  mandiScroll: {
-    flexDirection: 'row',
-    gap: 12,
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 10,
   },
-  mandiCard: {
-    flex: 1,
-    padding: 12,
+  sectionHeading: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  seeAllBtn: {
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+  },
+  seeAllText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#16a34a',
+  },
+
+  /* Crops Horizontal */
+  cropsScroll: {
+    gap: 10,
+    paddingBottom: 4,
+    marginBottom: 16,
+  },
+  cropCard: {
+    width: 120,
+    backgroundColor: '#ffffff',
     borderRadius: 12,
     borderWidth: 1,
+    borderColor: '#e2e8f0',
+    overflow: 'hidden',
   },
-  cropName: {
-    fontSize: 12,
-    fontWeight: '600',
+  cropImg: {
+    width: '100%',
+    height: 70,
   },
-  cropPrice: {
-    fontSize: 14,
+  cropInfo: {
+    padding: 8,
+  },
+  cropTitle: {
+    fontSize: 13,
     fontWeight: '700',
-    marginTop: 4,
+    color: '#0f172a',
   },
-  pricePositive: {
+  cropStage: {
+    fontSize: 9.5,
+    color: '#64748b',
+    marginTop: 1,
+  },
+  progressTrack: {
+    height: 4,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 2,
+    marginVertical: 6,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  cropDays: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  addCropCard: {
+    width: 100,
+    backgroundColor: '#f0fdf4',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#86efac',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+  },
+  addCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#16a34a',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  addCropLabel: {
     fontSize: 11,
+    fontWeight: '700',
     color: '#16a34a',
+  },
+
+  /* AR Featured Banner */
+  arBannerCard: {
+    backgroundColor: '#064e3b',
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    overflow: 'hidden',
+  },
+  arLeftContent: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  arBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 4,
+  },
+  arBadgeText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  arHeading: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#ffffff',
+    marginBottom: 4,
+  },
+  arDesc: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.85)',
+    lineHeight: 16,
+    marginBottom: 12,
+  },
+  arStartBtn: {
+    backgroundColor: '#16a34a',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+  },
+  arStartBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  arScanGraphicWrap: {
+    width: 85,
+    height: 100,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+    borderWidth: 2,
+    borderColor: '#22c55e',
+  },
+  arPreviewImg: {
+    width: '100%',
+    height: '100%',
+  },
+  arViewBox: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    backgroundColor: 'rgba(22, 163, 74, 0.85)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  arTag: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+
+  /* Split Tasks & Mandi Row */
+  splitRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  splitCard: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  splitHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  splitTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  splitSeeAll: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#16a34a',
+  },
+  mandiSub: {
+    fontSize: 9.5,
+    color: '#64748b',
+    marginBottom: 8,
+  },
+  taskCheckRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 5,
+  },
+  taskItemText: {
+    fontSize: 11,
+    color: '#1e293b',
+    flex: 1,
+    lineHeight: 15,
+  },
+  mandiItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4.5,
+  },
+  mandiLeftCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  mandiIconDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mandiCropText: {
+    fontSize: 11,
     fontWeight: '600',
+    color: '#1e293b',
+  },
+  mandiRightCol: {
+    alignItems: 'flex-end',
+  },
+  mandiPriceText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  mandiRateGreen: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#16a34a',
+  },
+  mandiRateRed: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#dc2626',
+  },
+
+  /* Two Feature Banner Cards */
+  twoCardsRow: {
+    flexDirection: 'column',
+    gap: 8,
+    marginBottom: 14,
+  },
+  bannerCardItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  bannerCardIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  bannerCardTextWrap: {
+    flex: 1,
+  },
+  bannerCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  bannerCardDesc: {
+    fontSize: 10.5,
+    color: '#64748b',
     marginTop: 2,
   },
-  priceNegative: {
-    fontSize: 11,
-    color: '#dc2626',
-    fontWeight: '600',
+
+  /* Triple Service Pills */
+  tripleServicesRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  servicePillCard: {
+    flex: 1,
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  serviceIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  servicePillTitle: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#0f172a',
+    textAlign: 'center',
+    marginBottom: 2,
+  },
+  servicePillDesc: {
+    fontSize: 8.5,
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 11,
+  },
+
+  /* Bottom Promo */
+  bottomPromoCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4 },
+      android: { elevation: 1 },
+    }),
+  },
+  promoFarmerThumb: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 10,
+  },
+  promoTextWrap: {
+    flex: 1,
+    paddingRight: 6,
+  },
+  promoHeadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  promoTitle: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  promoDesc: {
+    fontSize: 9.5,
+    color: '#64748b',
+    lineHeight: 13,
     marginTop: 2,
+  },
+  promoBtn: {
+    backgroundColor: '#16a34a',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+  },
+  promoBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '700',
   },
 });
