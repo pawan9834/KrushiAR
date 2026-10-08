@@ -15,6 +15,7 @@ import { router } from 'expo-router';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useLanguage } from '@/context/LanguageContext';
+import { useUserLocation } from '@/context/LocationContext';
 
 export default function ProfileScreen() {
   const colorScheme = useColorScheme();
@@ -22,6 +23,7 @@ export default function ProfileScreen() {
 
   // Global Language Context: 'en' | 'mr' | 'hi'
   const { language, setLanguage, t } = useLanguage();
+  const { location, setShowLocationModal } = useUserLocation();
 
   const handleLogout = () => {
     Alert.alert(
@@ -47,13 +49,19 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.locationChip}>
+          <TouchableOpacity
+            style={styles.locationChip}
+            onPress={() => setShowLocationModal(true)}
+            activeOpacity={0.8}>
             <Ionicons name="location-sharp" size={13} color="#16a34a" />
-            <Text style={styles.locationText}>Chopda, Jalgaon </Text>
+            <Text style={styles.locationText}>{location.displayLocation} </Text>
             <Ionicons name="chevron-down" size={11} color="#0f172a" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.bellBtn}>
+          <TouchableOpacity
+            style={styles.bellBtn}
+            onPress={() => router.push('/notifications')}
+            activeOpacity={0.8}>
             <Ionicons name="notifications-outline" size={22} color="#1e293b" />
             <View style={styles.badge}>
               <Text style={styles.badgeText}>3</Text>
@@ -108,12 +116,14 @@ export default function ProfileScreen() {
 
             <View style={styles.detailRow}>
               <Ionicons name="location-sharp" size={12} color="#64748b" />
-              <Text style={styles.detailText} numberOfLines={1}>Chopda, Jalgaon, Maharashtra</Text>
+              <Text style={styles.detailText} numberOfLines={1}>{location.displayLocation}, {location.state}</Text>
             </View>
           </View>
 
           {/* Edit Profile Button */}
-          <TouchableOpacity style={styles.editProfileBtn}>
+          <TouchableOpacity 
+            style={styles.editProfileBtn}
+            onPress={() => router.push('/personal-info')}>
             <Feather name="edit-2" size={12} color="#16a34a" />
             <Text style={styles.editProfileText}>{t.editProfile}</Text>
           </TouchableOpacity>
@@ -153,7 +163,7 @@ export default function ProfileScreen() {
         {/* Pending Tasks */}
         <TouchableOpacity
           style={styles.metricCard}
-          onPress={() => router.push('/(tabs)')}>
+          onPress={() => router.push('/tasks')}>
           <View style={[styles.metricIconWrap, { backgroundColor: '#dcfce7' }]}>
             <MaterialCommunityIcons name="clipboard-check-outline" size={18} color="#16a34a" />
           </View>
@@ -229,7 +239,9 @@ export default function ProfileScreen() {
       <Text style={styles.sectionTitle}>{t.accountSettings}</Text>
       <View style={styles.groupedCard}>
         {/* Personal Information */}
-        <TouchableOpacity style={styles.groupItemRow}>
+        <TouchableOpacity 
+          style={styles.groupItemRow}
+          onPress={() => router.push('/personal-info')}>
           <View style={[styles.groupIconWrap, { backgroundColor: '#f3e8ff' }]}>
             <Ionicons name="person" size={18} color="#9333ea" />
           </View>

@@ -10,16 +10,19 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useLanguage } from '@/context/LanguageContext';
+import { useUserLocation } from '@/context/LocationContext';
 
 export default function MyFarmScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? 'light'];
   const { t } = useLanguage();
+  const { location, setShowLocationModal } = useUserLocation();
 
   // Sub-tabs / Filters
   const [activeTab, setActiveTab] = useState<'crops' | 'land' | 'tasks' | 'expenses' | 'analytics'>('crops');
@@ -102,13 +105,19 @@ export default function MyFarmScreen() {
         </View>
 
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.locationChip}>
+          <TouchableOpacity
+            style={styles.locationChip}
+            onPress={() => setShowLocationModal(true)}
+            activeOpacity={0.8}>
             <Ionicons name="location-sharp" size={13} color="#16a34a" />
-            <Text style={styles.locationText}>{t.chopda}, {t.jalgaon} </Text>
+            <Text style={styles.locationText}>{location.displayLocation} </Text>
             <Ionicons name="chevron-down" size={11} color="#0f172a" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.bellBtn}>
+          <TouchableOpacity
+            style={styles.bellBtn}
+            onPress={() => router.push('/notifications')}
+            activeOpacity={0.8}>
             <Ionicons name="notifications-outline" size={22} color="#1e293b" />
             <View style={styles.badge}>
               <Text style={styles.badgeText}>3</Text>
@@ -127,7 +136,13 @@ export default function MyFarmScreen() {
           return (
             <TouchableOpacity
               key={tab.key}
-              onPress={() => setActiveTab(tab.key as any)}
+              onPress={() => {
+                if (tab.key === 'tasks') {
+                  router.push('/tasks');
+                } else {
+                  setActiveTab(tab.key as any);
+                }
+              }}
               style={[
                 styles.filterPill,
                 isActive ? styles.filterPillActive : styles.filterPillInactive,
@@ -292,6 +307,7 @@ export default function MyFarmScreen() {
           <TouchableOpacity
             key={crop.id}
             activeOpacity={0.8}
+            onPress={() => router.push('/crop-details')}
             style={styles.cropDetailCard}>
             {/* Left Crop Photo */}
             <Image source={{ uri: crop.image }} style={styles.cropPhoto} />

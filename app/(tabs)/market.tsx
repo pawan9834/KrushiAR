@@ -13,12 +13,15 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Path, Defs, LinearGradient, Stop, Circle, Line } from 'react-native-svg';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { router } from 'expo-router';
 import { useLanguage } from '@/context/LanguageContext';
+import { useUserLocation } from '@/context/LocationContext';
 
 export default function MarketScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? 'light'];
   const { t } = useLanguage();
+  const { location, setShowLocationModal } = useUserLocation();
 
   // Active filter pill
   const [activePill, setActivePill] = useState<'prices' | 'mandis' | 'trends' | 'trade'>('prices');
@@ -155,13 +158,19 @@ export default function MarketScreen() {
         </View>
 
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.locationChip}>
+          <TouchableOpacity
+            style={styles.locationChip}
+            onPress={() => setShowLocationModal(true)}
+            activeOpacity={0.8}>
             <Ionicons name="location-sharp" size={13} color="#16a34a" />
-            <Text style={styles.locationText}>{t.chopda}, {t.jalgaon} </Text>
+            <Text style={styles.locationText}>{location.displayLocation} </Text>
             <Ionicons name="chevron-down" size={11} color="#0f172a" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.bellBtn}>
+          <TouchableOpacity
+            style={styles.bellBtn}
+            onPress={() => router.push('/notifications')}
+            activeOpacity={0.8}>
             <Ionicons name="notifications-outline" size={22} color="#1e293b" />
             <View style={styles.badge}>
               <Text style={styles.badgeText}>3</Text>

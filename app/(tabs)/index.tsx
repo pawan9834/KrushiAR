@@ -15,12 +15,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { useLanguage } from '@/context/LanguageContext';
+import { useUserLocation } from '@/context/LocationContext';
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? 'light'];
   const { t } = useLanguage();
+  const { location, setShowLocationModal } = useUserLocation();
 
   // Interactive Farm Tasks State (persists completion state while translating title)
   const [completedTaskIds, setCompletedTaskIds] = useState<string[]>(['1']);
@@ -58,19 +60,25 @@ export default function DashboardScreen() {
 
         <View style={styles.headerRightRow}>
           {/* Location Chip */}
-          <TouchableOpacity style={styles.locationChip}>
+          <TouchableOpacity
+            style={styles.locationChip}
+            onPress={() => setShowLocationModal(true)}
+            activeOpacity={0.8}>
             <Ionicons name="location-sharp" size={14} color="#16a34a" />
             <View style={{ marginLeft: 3 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={styles.locationCity}>{t.chopda},</Text>
+                <Text style={styles.locationCity}>{location.displayCity},</Text>
                 <Ionicons name="chevron-down" size={11} color="#0f172a" style={{ marginLeft: 2 }} />
               </View>
-              <Text style={styles.locationDistrict}>{t.jalgaon}</Text>
+              <Text style={styles.locationDistrict}>{location.displayDistrict}</Text>
             </View>
           </TouchableOpacity>
 
           {/* Notification Bell */}
-          <TouchableOpacity style={styles.bellBtn}>
+          <TouchableOpacity
+            style={styles.bellBtn}
+            onPress={() => router.push('/notifications')}
+            activeOpacity={0.8}>
             <Ionicons name="notifications-outline" size={22} color="#1e293b" />
             <View style={styles.badge}>
               <Text style={styles.badgeText}>3</Text>
@@ -100,7 +108,10 @@ export default function DashboardScreen() {
       </View>
 
       {/* 3. Weather Card */}
-      <View style={styles.weatherCard}>
+      <TouchableOpacity
+        style={styles.weatherCard}
+        activeOpacity={0.88}
+        onPress={() => router.push('/weather')}>
         <View style={styles.weatherLeft}>
           <View style={styles.weatherIconTemp}>
             <Ionicons name="sunny" size={28} color="#f59e0b" />
@@ -134,16 +145,22 @@ export default function DashboardScreen() {
             <Text style={styles.metricLabel}>{t.windSpeed}</Text>
           </View>
 
-          <View style={styles.weatherLocation}>
+          <TouchableOpacity
+            style={styles.weatherLocation}
+            onPress={(e) => {
+              e.stopPropagation?.();
+              setShowLocationModal(true);
+            }}
+            activeOpacity={0.8}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Ionicons name="location-sharp" size={11} color="#0f172a" />
-              <Text style={styles.weatherLocName}> {t.chopda}</Text>
+              <Text style={styles.weatherLocName}> {location.displayCity}</Text>
             </View>
-            <Text style={styles.weatherLocSub}>{t.jalgaon}, MH</Text>
+            <Text style={styles.weatherLocSub}>{location.displayDistrict}, {location.state}</Text>
             <Text style={styles.weatherDate}>Tue, 7 Oct 2026</Text>
-          </View>
+          </TouchableOpacity>
         </View>
-      </View>
+      </TouchableOpacity>
 
       {/* 4. Quick Action Buttons Grid (4 items) */}
       <View style={styles.quickGrid}>
@@ -186,7 +203,7 @@ export default function DashboardScreen() {
         <View style={styles.splitCard}>
           <View style={styles.splitHeader}>
             <Text style={styles.splitTitle}>{t.todaysTasks}</Text>
-            <TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push('/tasks')}>
               <Text style={styles.splitSeeAll}>{t.seeAll}</Text>
             </TouchableOpacity>
           </View>
@@ -295,7 +312,10 @@ export default function DashboardScreen() {
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cropsScroll}>
         {/* Crop 1: Soybean */}
-        <View style={styles.cropCard}>
+        <TouchableOpacity
+          style={styles.cropCard}
+          activeOpacity={0.8}
+          onPress={() => router.push('/crop-details')}>
           <Image
             source={{ uri: 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&q=80' }}
             style={styles.cropImg}
@@ -308,10 +328,13 @@ export default function DashboardScreen() {
             </View>
             <Text style={styles.cropDays}>25 {t.daysLeftText}</Text>
           </View>
-        </View>
+        </TouchableOpacity>
 
         {/* Crop 2: Cotton */}
-        <View style={styles.cropCard}>
+        <TouchableOpacity
+          style={styles.cropCard}
+          activeOpacity={0.8}
+          onPress={() => router.push('/crop-details')}>
           <Image
             source={{ uri: 'https://images.unsplash.com/photo-1606041008023-472dfb5e530f?w=400&q=80' }}
             style={styles.cropImg}
@@ -324,10 +347,13 @@ export default function DashboardScreen() {
             </View>
             <Text style={styles.cropDays}>45 {t.daysLeftText}</Text>
           </View>
-        </View>
+        </TouchableOpacity>
 
         {/* Crop 3: Maize */}
-        <View style={styles.cropCard}>
+        <TouchableOpacity
+          style={styles.cropCard}
+          activeOpacity={0.8}
+          onPress={() => router.push('/crop-details')}>
           <Image
             source={{ uri: 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=400&q=80' }}
             style={styles.cropImg}
@@ -340,10 +366,13 @@ export default function DashboardScreen() {
             </View>
             <Text style={styles.cropDays}>30 {t.daysLeftText}</Text>
           </View>
-        </View>
+        </TouchableOpacity>
 
         {/* Crop 4: Onion */}
-        <View style={styles.cropCard}>
+        <TouchableOpacity
+          style={styles.cropCard}
+          activeOpacity={0.8}
+          onPress={() => router.push('/crop-details')}>
           <Image
             source={{ uri: 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=400&q=80' }}
             style={styles.cropImg}
@@ -356,7 +385,7 @@ export default function DashboardScreen() {
             </View>
             <Text style={styles.cropDays}>60 {t.daysLeftText}</Text>
           </View>
-        </View>
+        </TouchableOpacity>
 
         {/* Add Crop Card */}
         <TouchableOpacity
@@ -431,7 +460,10 @@ export default function DashboardScreen() {
           <Text style={styles.servicePillDesc}>{t.farmAnalyticsSub}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={[styles.servicePillCard, { backgroundColor: '#f0f9ff', borderColor: '#e0f2fe' }]}>
+        <TouchableOpacity
+          style={[styles.servicePillCard, { backgroundColor: '#f0f9ff', borderColor: '#e0f2fe' }]}
+          onPress={() => router.push('/weather')}
+          activeOpacity={0.8}>
           <View style={[styles.serviceIconWrap, { backgroundColor: '#bae6fd' }]}>
             <Ionicons name="rainy" size={18} color="#0284c7" />
           </View>
