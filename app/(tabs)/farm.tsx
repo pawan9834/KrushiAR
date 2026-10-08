@@ -5,214 +5,371 @@ import {
   View,
   ScrollView,
   TouchableOpacity,
+  Image,
+  ImageBackground,
   Platform,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-
-interface PlotData {
-  id: string;
-  name: string;
-  crop: string;
-  area: string;
-  stage: string;
-  health: number;
-  moisture: number;
-  irrigation: string;
-  status: 'Healthy' | 'Needs Attention' | 'Harvest Ready';
-  statusColor: string;
-}
-
-const PLOTS: PlotData[] = [
-  {
-    id: '1',
-    name: 'Plot A • North Canal',
-    crop: 'Cotton (Bt-2)',
-    area: '5.5 Acres',
-    stage: 'Flowering (Day 64)',
-    health: 94,
-    moisture: 68,
-    irrigation: 'Drip System #1',
-    status: 'Healthy',
-    statusColor: '#16a34a',
-  },
-  {
-    id: '2',
-    name: 'Plot B • East Orchard',
-    crop: 'Alphonso Mango',
-    area: '3.5 Acres',
-    stage: 'Fruit Formation',
-    health: 86,
-    moisture: 58,
-    irrigation: 'Micro Sprinklers',
-    status: 'Needs Attention',
-    statusColor: '#f59e0b',
-  },
-  {
-    id: '3',
-    name: 'Plot C • Sunrise Valley',
-    crop: 'Sharbati Wheat',
-    area: '5.2 Acres',
-    stage: 'Grain Filling (Day 82)',
-    health: 98,
-    moisture: 64,
-    irrigation: 'Smart Drip #3',
-    status: 'Healthy',
-    statusColor: '#16a34a',
-  },
-];
+import { useLanguage } from '@/context/LanguageContext';
 
 export default function MyFarmScreen() {
+  const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? 'light'];
-  const [selectedPlot, setSelectedPlot] = useState<string>('1');
+  const { t } = useLanguage();
+
+  // Sub-tabs / Filters
+  const [activeTab, setActiveTab] = useState<'crops' | 'land' | 'tasks' | 'expenses' | 'analytics'>('crops');
+  // Selected plot on map
+  const [selectedPlot, setSelectedPlot] = useState<string | null>(null);
+
+  const filterTabs = [
+    { key: 'crops', label: t.filterCrops, icon: 'sprout' as const, isMCI: true },
+    { key: 'land', label: t.filterLand, icon: 'map-outline' as const, isMCI: false },
+    { key: 'tasks', label: t.filterTasks, icon: 'checkbox-outline' as const, isMCI: false },
+    { key: 'expenses', label: t.filterExpenses, icon: 'cash-outline' as const, isMCI: false },
+    { key: 'analytics', label: t.filterAnalytics, icon: 'bar-chart-outline' as const, isMCI: false },
+  ];
+
+  const cropsList = [
+    {
+      id: '1',
+      name: t.cropSoybean,
+      variety: 'Var: JS 335',
+      area: `1.5 ${t.acre}`,
+      stage: t.stageVegetative,
+      stageColor: '#16a34a',
+      progress: '45%',
+      progressColor: '#16a34a',
+      daysLeft: `25 ${t.daysLeftText}`,
+      sowingDate: '01 Jun 2026',
+      image: 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&q=80',
+    },
+    {
+      id: '2',
+      name: t.cropMaize,
+      variety: 'Var: Pioneer 3401',
+      area: `2 ${t.acre}`,
+      stage: t.stageGrowing,
+      stageColor: '#eab308',
+      progress: '50%',
+      progressColor: '#eab308',
+      daysLeft: `30 ${t.daysLeftText}`,
+      sowingDate: '15 Jun 2026',
+      image: 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=400&q=80',
+    },
+    {
+      id: '3',
+      name: t.cropOnion,
+      variety: 'Var: N-53',
+      area: `1 ${t.acre}`,
+      stage: t.stageLandPrep,
+      stageColor: '#0284c7',
+      progress: '20%',
+      progressColor: '#0284c7',
+      daysLeft: `60 ${t.daysLeftText}`,
+      sowingDate: '20 Oct 2026',
+      image: 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=400&q=80',
+    },
+    {
+      id: '4',
+      name: t.cropCotton,
+      variety: 'Var: RCH 659',
+      area: `1 ${t.acre}`,
+      stage: t.stageFlowering,
+      stageColor: '#f59e0b',
+      progress: '60%',
+      progressColor: '#f59e0b',
+      daysLeft: `45 ${t.daysLeftText}`,
+      sowingDate: '10 Jun 2026',
+      image: 'https://images.unsplash.com/photo-1606041008023-472dfb5e530f?w=400&q=80',
+    },
+  ];
 
   return (
     <ScrollView
-      style={[styles.container, { backgroundColor: theme.background }]}
-      contentContainerStyle={styles.contentContainer}
+      style={[styles.container, { backgroundColor: '#f8fafc' }]}
+      contentContainerStyle={[styles.content, { paddingTop: 12, paddingBottom: 40 }]}
       showsVerticalScrollIndicator={false}>
-      {/* Farm Overview Stats */}
-      <View style={[styles.farmOverviewCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <View style={styles.farmTitleRow}>
-          <View>
-            <Text style={[styles.farmName, { color: theme.text }]}>Krushi Green Valley</Text>
-            <Text style={[styles.farmSub, { color: theme.subtext }]}>GPS: 19.8762° N, 75.3433° E</Text>
-          </View>
-          <View style={[styles.badgeTotal, { backgroundColor: theme.tintLight }]}>
-            <Text style={[styles.badgeText, { color: theme.tint }]}>14.2 Acres</Text>
-          </View>
+      {/* 1. Header */}
+      <View style={styles.headerRow}>
+        <View>
+          <Text style={styles.screenTitle}>{t.screenTitleFarm}</Text>
+          <Text style={styles.screenSub}>{t.screenSubFarm}</Text>
         </View>
 
-        <View style={styles.statsRow}>
-          <View style={styles.statCol}>
-            <Text style={[styles.statNum, { color: theme.text }]}>3</Text>
-            <Text style={[styles.statLabel, { color: theme.subtext }]}>Active Plots</Text>
-          </View>
-          <View style={[styles.statDivider, { backgroundColor: theme.border }]} />
-          <View style={styles.statCol}>
-            <Text style={[styles.statNum, { color: theme.text }]}>2</Text>
-            <Text style={[styles.statLabel, { color: theme.subtext }]}>Crop Types</Text>
-          </View>
-          <View style={[styles.statDivider, { backgroundColor: theme.border }]} />
-          <View style={styles.statCol}>
-            <Text style={[styles.statNum, { color: theme.tint }]}>93%</Text>
-            <Text style={[styles.statLabel, { color: theme.subtext }]}>Avg Health</Text>
-          </View>
+        <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.locationChip}>
+            <Ionicons name="location-sharp" size={13} color="#16a34a" />
+            <Text style={styles.locationText}>{t.chopda}, {t.jalgaon} </Text>
+            <Ionicons name="chevron-down" size={11} color="#0f172a" />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.bellBtn}>
+            <Ionicons name="notifications-outline" size={22} color="#1e293b" />
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>3</Text>
+            </View>
+          </TouchableOpacity>
         </View>
       </View>
 
-      {/* Plot List Section */}
-      <View style={styles.sectionHeaderRow}>
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Farm Plots & Crops</Text>
-        <TouchableOpacity style={[styles.addPlotBtn, { backgroundColor: theme.tintLight }]}>
-          <Ionicons name="add" size={18} color={theme.tint} />
-          <Text style={[styles.addPlotText, { color: theme.tint }]}>Add Plot</Text>
+      {/* 2. Horizontal Filter Pills */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterPillsScroll}>
+        {filterTabs.map((tab) => {
+          const isActive = activeTab === tab.key;
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              onPress={() => setActiveTab(tab.key as any)}
+              style={[
+                styles.filterPill,
+                isActive ? styles.filterPillActive : styles.filterPillInactive,
+              ]}>
+              {tab.isMCI ? (
+                <MaterialCommunityIcons
+                  name={tab.icon as any}
+                  size={16}
+                  color={isActive ? '#ffffff' : '#475569'}
+                />
+              ) : (
+                <Ionicons
+                  name={tab.icon as any}
+                  size={16}
+                  color={isActive ? '#ffffff' : '#475569'}
+                />
+              )}
+              <Text
+                style={[
+                  styles.filterPillText,
+                  isActive ? styles.filterPillTextActive : styles.filterPillTextInactive,
+                ]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      {/* 3. Total Farm Area Card */}
+      <View style={styles.areaCard}>
+        <View style={styles.areaLeft}>
+          <View style={styles.farmFieldThumb}>
+            <MaterialCommunityIcons name="image-filter-hdr" size={24} color="#16a34a" />
+          </View>
+          <View style={styles.areaTextCol}>
+            <Text style={styles.areaLabel}>{t.totalFarmArea}</Text>
+            <View style={styles.areaValRow}>
+              <Text style={styles.areaValue}>5.5 {t.acres} </Text>
+              <Text style={styles.areaUnitHectare}>(2.23 Hectares)</Text>
+            </View>
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.editBtn}>
+          <MaterialCommunityIcons name="pencil-outline" size={14} color="#16a34a" />
+          <Text style={styles.editBtnText}>{t.edit}</Text>
         </TouchableOpacity>
       </View>
 
-      {PLOTS.map((plot) => {
-        const isSelected = selectedPlot === plot.id;
-        return (
+      {/* 4. Satellite Map Plot Card */}
+      <View style={styles.mapContainer}>
+        <ImageBackground
+          source={{ uri: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800&q=80' }}
+          style={styles.satelliteBg}
+          imageStyle={{ borderRadius: 16 }}>
+          {/* Overlay Grid Plots */}
+          <View style={styles.plotsGrid}>
+            {/* Top Left: Soybean */}
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => setSelectedPlot('soybean')}
+              style={[
+                styles.plotPolygon,
+                {
+                  backgroundColor: 'rgba(22, 163, 74, 0.45)',
+                  borderColor: '#22c55e',
+                  borderWidth: selectedPlot === 'soybean' ? 3 : 1.5,
+                },
+              ]}>
+              <MaterialCommunityIcons name="sprout" size={20} color="#ffffff" />
+              <Text style={styles.plotCropName}>{t.cropSoybean}</Text>
+              <Text style={styles.plotAreaSub}>1.5 {t.acre}</Text>
+            </TouchableOpacity>
+
+            {/* Top Right: Maize */}
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => setSelectedPlot('maize')}
+              style={[
+                styles.plotPolygon,
+                {
+                  backgroundColor: 'rgba(234, 179, 8, 0.45)',
+                  borderColor: '#facc15',
+                  borderWidth: selectedPlot === 'maize' ? 3 : 1.5,
+                },
+              ]}>
+              <MaterialCommunityIcons name="corn" size={20} color="#ffffff" />
+              <Text style={styles.plotCropName}>{t.cropMaize}</Text>
+              <Text style={styles.plotAreaSub}>2 {t.acre}</Text>
+            </TouchableOpacity>
+
+            {/* Bottom Left: Onion */}
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => setSelectedPlot('onion')}
+              style={[
+                styles.plotPolygon,
+                {
+                  backgroundColor: 'rgba(59, 130, 246, 0.45)',
+                  borderColor: '#60a5fa',
+                  borderWidth: selectedPlot === 'onion' ? 3 : 1.5,
+                },
+              ]}>
+              <MaterialCommunityIcons name="circle" size={18} color="#ffffff" />
+              <Text style={styles.plotCropName}>{t.cropOnion}</Text>
+              <Text style={styles.plotAreaSub}>1 {t.acre}</Text>
+            </TouchableOpacity>
+
+            {/* Bottom Right: Cotton */}
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => setSelectedPlot('cotton')}
+              style={[
+                styles.plotPolygon,
+                {
+                  backgroundColor: 'rgba(239, 68, 68, 0.45)',
+                  borderColor: '#f87171',
+                  borderWidth: selectedPlot === 'cotton' ? 3 : 1.5,
+                },
+              ]}>
+              <MaterialCommunityIcons name="cloud" size={18} color="#ffffff" />
+              <Text style={styles.plotCropName}>{t.cropCotton}</Text>
+              <Text style={styles.plotAreaSub}>1 {t.acre}</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Map Controls */}
+          <TouchableOpacity style={styles.mapAddPlotBtn}>
+            <Ionicons name="add" size={16} color="#16a34a" />
+            <Text style={styles.mapAddPlotText}>{t.addCrop}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.mapCompassBtn}>
+            <Ionicons name="locate" size={18} color="#0f172a" />
+          </TouchableOpacity>
+
+          <View style={styles.mapZoomGroup}>
+            <TouchableOpacity style={styles.zoomBtn}>
+              <Ionicons name="add" size={16} color="#0f172a" />
+            </TouchableOpacity>
+            <View style={styles.zoomDivider} />
+            <TouchableOpacity style={styles.zoomBtn}>
+              <Ionicons name="remove" size={16} color="#0f172a" />
+            </TouchableOpacity>
+          </View>
+        </ImageBackground>
+      </View>
+
+      {/* 5. "My Crops (4)" Section Header */}
+      <View style={styles.cropsHeaderRow}>
+        <Text style={styles.cropsSectionTitle}>{t.cropsCount}</Text>
+        <TouchableOpacity style={styles.addCropBtn}>
+          <Ionicons name="add" size={16} color="#ffffff" />
+          <Text style={styles.addCropBtnText}>{t.addCrop}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 6. Crop Cards List */}
+      <View style={styles.cropsListCol}>
+        {cropsList.map((crop) => (
           <TouchableOpacity
-            key={plot.id}
+            key={crop.id}
             activeOpacity={0.8}
-            onPress={() => setSelectedPlot(plot.id)}
-            style={[
-              styles.plotCard,
-              {
-                backgroundColor: theme.card,
-                borderColor: isSelected ? theme.tint : theme.border,
-                borderWidth: isSelected ? 2 : 1,
-              },
-            ]}>
-            <View style={styles.plotHeader}>
-              <View style={styles.plotHeaderLeft}>
-                <MaterialCommunityIcons name="sprout" size={24} color={theme.tint} />
-                <View>
-                  <Text style={[styles.plotCrop, { color: theme.text }]}>{plot.crop}</Text>
-                  <Text style={[styles.plotName, { color: theme.subtext }]}>{plot.name}</Text>
+            style={styles.cropDetailCard}>
+            {/* Left Crop Photo */}
+            <Image source={{ uri: crop.image }} style={styles.cropPhoto} />
+
+            {/* Center Info */}
+            <View style={styles.cropCenterInfo}>
+              <Text style={styles.cropCardName}>{crop.name}</Text>
+              <Text style={styles.cropCardVar}>
+                {crop.area} • {crop.variety}
+              </Text>
+              <Text style={[styles.cropCardStage, { color: crop.stageColor }]}>
+                {crop.stage}
+              </Text>
+              {/* Progress Bar */}
+              <View style={styles.progressRow}>
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: crop.progress as any, backgroundColor: crop.progressColor },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.daysLeftText}>{crop.daysLeft}</Text>
+              </View>
+            </View>
+
+            {/* Right Sowing Date */}
+            <View style={styles.cropRightCol}>
+              <View style={styles.sowingDateRow}>
+                <Ionicons name="calendar-outline" size={14} color="#64748b" />
+                <View style={{ marginLeft: 4 }}>
+                  <Text style={styles.sowingLabel}>{t.sowingDate}</Text>
+                  <Text style={styles.sowingDateVal}>{crop.sowingDate}</Text>
                 </View>
               </View>
-              <View style={[styles.statusTag, { backgroundColor: `${plot.statusColor}15` }]}>
-                <Text style={[styles.statusTagText, { color: plot.statusColor }]}>{plot.status}</Text>
-              </View>
-            </View>
-
-            <View style={[styles.plotDetailsGrid, { backgroundColor: theme.background }]}>
-              <View style={styles.detailItem}>
-                <Text style={[styles.detailLabel, { color: theme.subtext }]}>Area</Text>
-                <Text style={[styles.detailVal, { color: theme.text }]}>{plot.area}</Text>
-              </View>
-              <View style={styles.detailItem}>
-                <Text style={[styles.detailLabel, { color: theme.subtext }]}>Growth Stage</Text>
-                <Text style={[styles.detailVal, { color: theme.text }]}>{plot.stage}</Text>
-              </View>
-              <View style={styles.detailItem}>
-                <Text style={[styles.detailLabel, { color: theme.subtext }]}>Moisture</Text>
-                <Text style={[styles.detailVal, { color: theme.text }]}>{plot.moisture}%</Text>
-              </View>
-              <View style={styles.detailItem}>
-                <Text style={[styles.detailLabel, { color: theme.subtext }]}>Health</Text>
-                <Text style={[styles.detailVal, { color: theme.tint }]}>{plot.health}%</Text>
-              </View>
-            </View>
-
-            <View style={styles.plotFooter}>
-              <View style={styles.irrigationTag}>
-                <Ionicons name="water-outline" size={14} color={theme.subtext} />
-                <Text style={[styles.irrigationTagText, { color: theme.subtext }]}>{plot.irrigation}</Text>
-              </View>
-              <TouchableOpacity style={styles.actionArrow}>
-                <Text style={[styles.manageText, { color: theme.tint }]}>Manage</Text>
-                <Ionicons name="chevron-forward" size={16} color={theme.tint} />
-              </TouchableOpacity>
+              <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
             </View>
           </TouchableOpacity>
-        );
-      })}
+        ))}
+      </View>
 
-      {/* Soil Health & Nutrients */}
-      <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 16 }]}>
-        Soil Nutrients Analysis (NPK)
-      </Text>
-      <View style={[styles.soilCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <View style={styles.npkRow}>
-          {/* Nitrogen */}
-          <View style={styles.npkItem}>
-            <View style={[styles.npkCircle, { borderColor: '#3b82f6' }]}>
-              <Text style={[styles.npkLetter, { color: '#3b82f6' }]}>N</Text>
-              <Text style={[styles.npkValue, { color: theme.text }]}>280</Text>
-            </View>
-            <Text style={[styles.npkLabel, { color: theme.subtext }]}>Nitrogen (kg/ha)</Text>
-            <Text style={[styles.npkStatus, { color: '#16a34a' }]}>Sufficient</Text>
+      {/* 7. Three Bottom Service Cards */}
+      <View style={styles.servicesRow}>
+        {/* Soil Health */}
+        <TouchableOpacity style={styles.serviceItemCard}>
+          <View style={[styles.serviceIconTile, { backgroundColor: '#e8f5e9' }]}>
+            <MaterialCommunityIcons name="sprout" size={20} color="#16a34a" />
           </View>
-
-          {/* Phosphorus */}
-          <View style={styles.npkItem}>
-            <View style={[styles.npkCircle, { borderColor: '#f59e0b' }]}>
-              <Text style={[styles.npkLetter, { color: '#f59e0b' }]}>P</Text>
-              <Text style={[styles.npkValue, { color: theme.text }]}>24</Text>
-            </View>
-            <Text style={[styles.npkLabel, { color: theme.subtext }]}>Phosphorus (kg/ha)</Text>
-            <Text style={[styles.npkStatus, { color: '#f59e0b' }]}>Medium</Text>
+          <View style={styles.serviceItemTextCol}>
+            <Text style={styles.serviceItemTitle}>{t.soilHealth}</Text>
+            <Text style={styles.serviceItemSub}>{t.soilHealthSub}</Text>
           </View>
+          <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+        </TouchableOpacity>
 
-          {/* Potassium */}
-          <View style={styles.npkItem}>
-            <View style={[styles.npkCircle, { borderColor: '#10b981' }]}>
-              <Text style={[styles.npkLetter, { color: '#10b981' }]}>K</Text>
-              <Text style={[styles.npkValue, { color: theme.text }]}>310</Text>
-            </View>
-            <Text style={[styles.npkLabel, { color: theme.subtext }]}>Potassium (kg/ha)</Text>
-            <Text style={[styles.npkStatus, { color: '#16a34a' }]}>High</Text>
+        {/* Irrigation */}
+        <TouchableOpacity style={styles.serviceItemCard}>
+          <View style={[styles.serviceIconTile, { backgroundColor: '#e0f2fe' }]}>
+            <Ionicons name="water" size={20} color="#0284c7" />
           </View>
-        </View>
+          <View style={styles.serviceItemTextCol}>
+            <Text style={styles.serviceItemTitle}>{t.irrigation}</Text>
+            <Text style={styles.serviceItemSub}>{t.irrigationSub}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+        </TouchableOpacity>
 
-        <TouchableOpacity style={[styles.soilReportBtn, { borderColor: theme.border }]}>
-          <FontAwesome5 name="file-medical-alt" size={16} color={theme.tint} />
-          <Text style={[styles.soilReportText, { color: theme.tint }]}>View Soil Test Lab Report</Text>
+        {/* Fertilizer Plan */}
+        <TouchableOpacity style={styles.serviceItemCard}>
+          <View style={[styles.serviceIconTile, { backgroundColor: '#fef3c7' }]}>
+            <MaterialCommunityIcons name="sack" size={20} color="#d97706" />
+          </View>
+          <View style={styles.serviceItemTextCol}>
+            <Text style={styles.serviceItemTitle}>{t.fertilizerPlan}</Text>
+            <Text style={styles.serviceItemSub}>{t.fertilizerPlanSub}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -223,228 +380,411 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  contentContainer: {
-    padding: 16,
-    paddingBottom: 32,
+  content: {
+    paddingHorizontal: 14,
   },
-  farmOverviewCard: {
-    borderRadius: 16,
-    padding: 18,
-    borderWidth: 1,
-    marginBottom: 20,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  farmTitleRow: {
+  /* Header */
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
-  farmName: {
-    fontSize: 18,
-    fontWeight: '700',
+  screenTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#0f172a',
+    letterSpacing: -0.3,
   },
-  farmSub: {
-    fontSize: 12,
-    marginTop: 2,
+  screenSub: {
+    fontSize: 11.5,
+    color: '#64748b',
+    marginTop: 1,
   },
-  badgeTotal: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  locationChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
     borderRadius: 20,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    gap: 3,
+  },
+  locationText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  bellBtn: {
+    position: 'relative',
+    padding: 6,
+  },
+  badge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: '#ef4444',
+    borderRadius: 8,
+    minWidth: 15,
+    height: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
   },
   badgeText: {
-    fontSize: 13,
+    color: '#ffffff',
+    fontSize: 9,
     fontWeight: '700',
   },
-  statsRow: {
+
+  /* Filter Pills */
+  filterPillsScroll: {
+    gap: 8,
+    paddingVertical: 4,
+    marginBottom: 14,
+  },
+  filterPill: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
     alignItems: 'center',
-    paddingTop: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 6,
   },
-  statCol: {
-    alignItems: 'center',
+  filterPillActive: {
+    backgroundColor: '#16a34a',
   },
-  statNum: {
-    fontSize: 20,
+  filterPillInactive: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  filterPillText: {
+    fontSize: 12,
     fontWeight: '700',
   },
-  statLabel: {
-    fontSize: 12,
-    marginTop: 2,
+  filterPillTextActive: {
+    color: '#ffffff',
   },
-  statDivider: {
-    width: 1,
-    height: 30,
+  filterPillTextInactive: {
+    color: '#475569',
   },
-  sectionHeaderRow: {
+
+  /* Total Farm Area Card */
+  areaCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  addPlotBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    gap: 4,
-  },
-  addPlotText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  plotCard: {
-    borderRadius: 16,
-    padding: 16,
     marginBottom: 14,
     ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04,
-        shadowRadius: 6,
-      },
-      android: {
-        elevation: 2,
-      },
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4 },
+      android: { elevation: 1 },
     }),
   },
-  plotHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  plotHeaderLeft: {
+  areaLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  plotCrop: {
-    fontSize: 16,
-    fontWeight: '700',
+  farmFieldThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#e8f5e9',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  plotName: {
-    fontSize: 12,
+  areaTextCol: {},
+  areaLabel: {
+    fontSize: 11,
+    color: '#64748b',
+  },
+  areaValRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
     marginTop: 2,
   },
-  statusTag: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+  areaValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0f172a',
   },
-  statusTagText: {
-    fontSize: 11,
-    fontWeight: '600',
+  areaUnitHectare: {
+    fontSize: 11.5,
+    color: '#64748b',
   },
-  plotDetailsGrid: {
+  editBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    backgroundColor: '#f0fdf4',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    gap: 4,
+  },
+  editBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#16a34a',
+  },
+
+  /* Satellite Map */
+  mapContainer: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginBottom: 16,
+    height: 220,
+  },
+  satelliteBg: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  plotsGrid: {
+    width: '88%',
+    height: '75%',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    padding: 12,
-    borderRadius: 12,
-    gap: 8,
-    marginBottom: 12,
+    gap: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  detailItem: {
-    width: '47%',
+  plotPolygon: {
+    width: '48%',
+    height: '47%',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 6,
   },
-  detailLabel: {
-    fontSize: 11,
-  },
-  detailVal: {
-    fontSize: 13,
-    fontWeight: '600',
+  plotCropName: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '800',
     marginTop: 2,
   },
-  plotFooter: {
+  plotAreaSub: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '600',
+    opacity: 0.9,
+  },
+  mapAddPlotBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 16,
+    gap: 4,
+    elevation: 3,
+  },
+  mapAddPlotText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#16a34a',
+  },
+  mapCompassBtn: {
+    position: 'absolute',
+    top: 50,
+    right: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 3,
+  },
+  mapZoomGroup: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    overflow: 'hidden',
+    elevation: 3,
+  },
+  zoomBtn: {
+    width: 32,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  zoomDivider: {
+    height: 1,
+    backgroundColor: '#e2e8f0',
+  },
+
+  /* My Crops Section Header */
+  cropsHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 12,
   },
-  irrigationTag: {
+  cropsSectionTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  cropsCount: {
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  addCropBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#16a34a',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
     gap: 4,
   },
-  irrigationTagText: {
+  addCropBtnText: {
     fontSize: 12,
+    fontWeight: '700',
+    color: '#ffffff',
   },
-  actionArrow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  manageText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  soilCard: {
-    borderRadius: 16,
-    padding: 18,
-    borderWidth: 1,
-    marginTop: 12,
-  },
-  npkRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+
+  /* Crop Cards List */
+  cropsListCol: {
+    gap: 10,
     marginBottom: 16,
   },
-  npkItem: {
-    alignItems: 'center',
-  },
-  npkCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 3,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  npkLetter: {
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  npkValue: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  npkLabel: {
-    fontSize: 11,
-  },
-  npkStatus: {
-    fontSize: 11,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  soilReportBtn: {
+  cropDetailCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderRadius: 12,
-    gap: 8,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4 },
+      android: { elevation: 1 },
+    }),
   },
-  soilReportText: {
-    fontSize: 13,
+  cropPhoto: {
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+    marginRight: 10,
+  },
+  cropCenterInfo: {
+    flex: 1,
+    paddingRight: 6,
+  },
+  cropCardName: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  cropCardVar: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 1,
+  },
+  cropCardStage: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 6,
+  },
+  progressTrack: {
+    flex: 1,
+    height: 4,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  daysLeftText: {
+    fontSize: 9.5,
+    color: '#64748b',
     fontWeight: '600',
+  },
+  cropRightCol: {
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    height: 54,
+  },
+  sowingDateRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  sowingLabel: {
+    fontSize: 9,
+    color: '#64748b',
+  },
+  sowingDateVal: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginTop: 1,
+  },
+
+  /* Services Row */
+  servicesRow: {
+    gap: 8,
+    marginBottom: 10,
+  },
+  serviceItemCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  serviceIconTile: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  serviceItemTextCol: {
+    flex: 1,
+  },
+  serviceItemTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  serviceItemSub: {
+    fontSize: 10.5,
+    color: '#64748b',
+    marginTop: 1,
   },
 });
