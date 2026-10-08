@@ -18,6 +18,8 @@ export const unstable_settings = {
 SplashScreen.preventAutoHideAsync();
 
 import { LanguageProvider } from '@/context/LanguageContext';
+import { LocationProvider } from '@/context/LocationContext';
+import LocationModal from '@/components/LocationModal';
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({
@@ -40,7 +42,10 @@ export default function RootLayout() {
 
   return (
     <LanguageProvider>
-      <RootLayoutNav />
+      <LocationProvider>
+        <RootLayoutNav />
+        <LocationModal />
+      </LocationProvider>
     </LanguageProvider>
   );
 }
@@ -68,6 +73,11 @@ function RootLayoutNav() {
       <StatusBar style="light" />
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="personal-info" options={{ headerShown: false }} />
+        <Stack.Screen name="crop-details" options={{ headerShown: false }} />
+        <Stack.Screen name="tasks" options={{ headerShown: false }} />
+        <Stack.Screen name="notifications" options={{ headerShown: false }} />
+        <Stack.Screen name="weather" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
       </Stack>
     </View>
