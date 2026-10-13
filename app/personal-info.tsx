@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -17,6 +17,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '@/context/LanguageContext';
 import { useUserLocation } from '@/context/LocationContext';
+import { getFarmerProfile, updateFarmerProfile } from '@/services/diaryStorage';
 
 export default function PersonalInformationScreen() {
   const insets = useSafeAreaInsets();
@@ -24,10 +25,10 @@ export default function PersonalInformationScreen() {
   const { location, requestLocation } = useUserLocation();
 
   // Initial Form Data
-  const initialData = {
-    fullName: 'Pawankumar Patil',
-    phoneNumber: '+91 98765 43210',
-    emailAddress: 'pawankpatil@gmail.com',
+  const [form, setForm] = useState({
+    fullName: '',
+    phoneNumber: '',
+    emailAddress: '',
     dob: '12 Jan 1997',
     gender: 'Male',
     state: 'Maharashtra',
@@ -35,9 +36,28 @@ export default function PersonalInformationScreen() {
     taluka: 'Chopda',
     villageCity: 'Chopda',
     pincode: '425107',
-  };
+  });
 
-  const [form, setForm] = useState(initialData);
+  useEffect(() => {
+    (async () => {
+      try {
+        const profile = await getFarmerProfile();
+        if (profile) {
+          setForm((prev) => ({
+            ...prev,
+            fullName: profile.name || prev.fullName,
+            phoneNumber: profile.phone ? (profile.phone.startsWith('+91') ? profile.phone : `+91 ${profile.phone}`) : prev.phoneNumber,
+            villageCity: profile.village || prev.villageCity,
+            taluka: profile.village || prev.taluka,
+            district: profile.district || prev.district,
+            state: profile.state || prev.state,
+          }));
+        }
+      } catch (err) {
+        console.warn('Failed to load profile in personal-info:', err);
+      }
+    })();
+  }, []);
 
   // Modal selector states
   const [modalType, setModalType] = useState<'gender' | 'state' | 'district' | 'taluka' | null>(null);
@@ -61,7 +81,7 @@ export default function PersonalInformationScreen() {
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.fullName.trim()) {
       Alert.alert('Required', 'Please enter your Full Name');
       return;
@@ -70,21 +90,47 @@ export default function PersonalInformationScreen() {
       Alert.alert('Required', 'Please enter your Phone Number');
       return;
     }
-    Alert.alert('Success', t.saveSuccess || 'Personal information updated successfully!');
+
+    try {
+      await updateFarmerProfile({
+        name: form.fullName.trim(),
+        phone: form.phoneNumber.trim().replace('+91', '').trim(),
+        village: form.villageCity.trim(),
+        district: form.district.trim(),
+        state: form.state.trim(),
+      });
+      Alert.alert('Success', t.saveSuccess || 'Personal information updated successfully!', [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
+    } catch (err) {
+      console.error('Failed to update profile:', err);
+    }
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
     Alert.alert(
       t.reset || 'Reset',
-      'Are you sure you want to reset all fields to default values?',
+      'Are you sure you want to reset all fields?',
       [
         { text: t.cancel || 'Cancel', style: 'cancel' },
         {
           text: t.reset || 'Reset',
           style: 'destructive',
-          onPress: () => {
-            setForm(initialData);
-            Alert.alert('Reset', t.resetSuccess || 'Form reset to default values.');
+          onPress: async () => {
+            const profile = await getFarmerProfile();
+            setForm({
+              fullName: profile.name || '',
+              phoneNumber: profile.phone ? `+91 ${profile.phone}` : '',
+              emailAddress: '',
+              dob: '12 Jan 1997',
+              gender: 'Male',
+              state: profile.state || 'Maharashtra',
+              district: profile.district || 'Jalgaon',
+              taluka: profile.village || 'Chopda',
+              villageCity: profile.village || 'Chopda',
+              pincode: '425107',
+            });
+            Alert.alert('Reset', t.resetSuccess || 'Form reset.');
           },
         },
       ]
@@ -111,9 +157,9 @@ export default function PersonalInformationScreen() {
           source={{ uri: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800&q=80' }}
           style={styles.headerBg}
           resizeMode="cover">
-          <View style={styles.headerOverlay}>
+          <View style={[styles.headerOverlay, { paddingTop: 11 }]}>
             {/* Top Row: Back button & Header texts */}
-            <View style={[styles.headerContentRow, { paddingTop: insets.top > 0 ? insets.top + 8 : 28 }]}>
+            <View style={styles.headerContentRow}>
               <TouchableOpacity
                 style={styles.backBtn}
                 onPress={() => router.back()}

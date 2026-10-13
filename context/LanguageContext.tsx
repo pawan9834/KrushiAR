@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import * as FileSystem from 'expo-file-system/legacy';
 
 export type Language = 'en' | 'mr' | 'hi';
 
@@ -56,6 +57,30 @@ export const translations = {
     promoTitle: 'Get AI Crop Guidance in Your Language',
     promoDesc: 'Take a photo or use AR to identify crop problems and get instant solution from experts.',
     tryNow: 'Try Now →',
+
+    // AI Farming Diary Dashboard Keys
+    greetingHello: 'Hello,',
+    greetingFarmer: 'Farmer Friend!',
+    greetingQuestion: 'What work did you do in the field today?',
+    listenGreeting: 'Listen 🔊',
+    takePhotoTitle: 'Take photo of field work\nand record directly 📷',
+    takePhotoSub: 'Records date, photo & GPS location automatically',
+    takePhotoBtn: 'Snap Photo & Record',
+    quickVoiceTitle: 'Just Speak & Record 🎙️',
+    quickVoiceSub: 'Press mic & speak in your voice, AI records automatically',
+    quickVoiceBtn: 'Speak & Record',
+    quickActionHistory: 'Farming History',
+    quickActionExpenses: 'Farm Expenses',
+    quickActionWeather: 'Weather',
+    quickActionSchemes: 'Govt Schemes',
+    quickActionAskAI: 'Ask My Farm\n(AI Assistant)',
+    recentActivitiesTitle: 'Recent Records',
+    viewAllRecords: 'View All',
+    costLabel: 'Cost:',
+    selectLanguage: 'Select Language',
+    tomatoPlanting: 'Tomato Planting',
+    spraying: 'Pesticide Spraying',
+    fertilizerApplying: 'Fertilizer Application',
 
     // Crops & Stages
     cropSoybean: 'Soybean',
@@ -358,6 +383,30 @@ export const translations = {
     promoDesc: 'पिकातील समस्या ओळखण्यासाठी फोटो काढा किंवा AR वापरा आणि तज्ञांकडून त्वरित उपाय मिळवा.',
     tryNow: 'आता वापरा →',
 
+    // AI Farming Diary Dashboard Keys
+    greetingHello: 'नमस्कार,',
+    greetingFarmer: 'शेतकरी मित्रा!',
+    greetingQuestion: 'आज शेतात काय काम केले?',
+    listenGreeting: 'ऐका 🔊',
+    takePhotoTitle: 'शेतातील कामाचा फोटो काढा\nआणि थेट नोंद करा 📷',
+    takePhotoSub: 'तारीख, फोटो व GPS लोकेशन आपोआप जोडले जाईल',
+    takePhotoBtn: 'फोटो काढून नोंद करा',
+    quickVoiceTitle: 'फक्त बोला आणि नोंद करा 🎙️',
+    quickVoiceSub: 'माइक दाबून बोला, AI आपोआप नोंद करेल',
+    quickVoiceBtn: 'बोलून नोंद करा',
+    quickActionHistory: 'शेतीचा इतिहास',
+    quickActionExpenses: 'शेतीचा खर्च',
+    quickActionWeather: 'हवामान',
+    quickActionSchemes: 'शासकीय योजना',
+    quickActionAskAI: 'माझ्या शेताला\nविचारा (AI)',
+    recentActivitiesTitle: 'अलीकडील नोंदी',
+    viewAllRecords: 'सर्व पहा',
+    costLabel: 'खर्च:',
+    selectLanguage: 'भाषा निवडा / Select Language',
+    tomatoPlanting: 'टोमॅटो लागवड',
+    spraying: 'फवारणी',
+    fertilizerApplying: 'खत दिले',
+
     // Crops & Stages
     cropSoybean: 'सोयाबीन',
     cropMaize: 'मका',
@@ -659,6 +708,30 @@ export const translations = {
     promoDesc: 'फसल की समस्याओं को पहचानने के लिए फोटो लें या AR का उपयोग करें और तुरंत समाधान पाएं।',
     tryNow: 'अभी आजमाएं →',
 
+    // AI Farming Diary Dashboard Keys
+    greetingHello: 'नमस्ते,',
+    greetingFarmer: 'किसान मित्र!',
+    greetingQuestion: 'आज आपने खेत में क्या काम किया?',
+    listenGreeting: 'सुनें 🔊',
+    takePhotoTitle: 'खेत के काम की फोटो लें\nऔर सीधे दर्ज करें 📷',
+    takePhotoSub: 'तारीख, फोटो और GPS स्थान अपने आप जुड़ जाएगा',
+    takePhotoBtn: 'फोटो लेकर दर्ज करें',
+    quickVoiceTitle: 'सिर्फ बोलें और दर्ज करें 🎙️',
+    quickVoiceSub: 'माइक दबाकर बोलें, AI अपने आप दर्ज कर लेगा',
+    quickVoiceBtn: 'बोलकर दर्ज करें',
+    quickActionHistory: 'खेती का इतिहास',
+    quickActionExpenses: 'खेती का खर्च',
+    quickActionWeather: 'मौसम',
+    quickActionSchemes: 'सरकारी योजनाएं',
+    quickActionAskAI: 'मेरे खेत से\nपूछें (AI)',
+    recentActivitiesTitle: 'हाल के रिकॉर्ड',
+    viewAllRecords: 'सभी देखें',
+    costLabel: 'खर्च:',
+    selectLanguage: 'भाषा चुनें / Select Language',
+    tomatoPlanting: 'टमाटर रोपाई',
+    spraying: 'छिड़काव',
+    fertilizerApplying: 'खाद दी',
+
     // Crops & Stages
     cropSoybean: 'सोयाबीन',
     cropMaize: 'मक्का',
@@ -921,8 +994,32 @@ const LanguageContext = createContext<LanguageContextType>({
 });
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [language, setLanguage] = useState<Language>('en');
-  const t = translations[language];
+  const [language, setLanguageState] = useState<Language>('mr');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const path = `${FileSystem.documentDirectory}app_language.txt`;
+        const info = await FileSystem.getInfoAsync(path);
+        if (info.exists) {
+          const savedLang = await FileSystem.readAsStringAsync(path);
+          if (savedLang === 'en' || savedLang === 'mr' || savedLang === 'hi') {
+            setLanguageState(savedLang);
+          }
+        }
+      } catch {}
+    })();
+  }, []);
+
+  const setLanguage = (lang: Language) => {
+    setLanguageState(lang);
+    try {
+      const path = `${FileSystem.documentDirectory}app_language.txt`;
+      FileSystem.writeAsStringAsync(path, lang).catch(() => {});
+    } catch {}
+  };
+
+  const t = translations[language] || translations.mr;
 
   return (
     <LanguageContext.Provider value={{ language, setLanguage, t }}>

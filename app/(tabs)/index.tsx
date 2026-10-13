@@ -1,9 +1,20 @@
+// app/(tabs)/index.tsx
+import { useLanguage } from '@/context/LanguageContext';
+import { useUserLocation } from '@/context/LocationContext';
+import {
+  ActivityRecord,
+  Crop,
+  getActivities,
+  getCrops,
+  getExpenseSummary,
+  getFarmerProfile,
+} from '@/services/diaryStorage';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
   Image,
-  Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,32 +23,107 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useColorScheme } from '@/components/useColorScheme';
-import Colors from '@/constants/Colors';
-import { useLanguage } from '@/context/LanguageContext';
-import { useUserLocation } from '@/context/LocationContext';
+// Safe dynamic Speech module
+let Speech: typeof import('expo-speech') | null = null;
+try {
+  Speech = require('expo-speech');
+} catch (e) {
+  // Graceful fallback
+}
 
-export default function DashboardScreen() {
+export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const theme = Colors[colorScheme ?? 'light'];
-  const { t } = useLanguage();
+  const { language, setLanguage } = useLanguage();
   const { location, setShowLocationModal } = useUserLocation();
 
-  // Interactive Farm Tasks State (persists completion state while translating title)
-  const [completedTaskIds, setCompletedTaskIds] = useState<string[]>(['1']);
+  const [farmerName, setFarmerName] = useState('पवन पाटील');
+  const [activities, setActivities] = useState<ActivityRecord[]>([]);
+  const [crops, setCrops] = useState<Crop[]>([]);
+  const [totalExpense, setTotalExpense] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
-  const farmTasks = [
-    { id: '1', title: t.task1 },
-    { id: '2', title: t.task2 },
-    { id: '3', title: t.task3 },
-    { id: '4', title: t.task4 },
-  ];
+  const loadDiaryData = useCallback(async () => {
+    try {
+      const [profile, acts, cropList, expenseData] = await Promise.all([
+        getFarmerProfile(),
+        getActivities(),
+        getCrops(),
+        getExpenseSummary(),
+      ]);
 
-  const toggleTask = (id: string) => {
-    setCompletedTaskIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
+      if (profile?.name) setFarmerName(profile.name);
+      setActivities(acts);
+      setCrops(cropList);
+      setTotalExpense(expenseData.totalExpense);
+    } catch (err) {
+      console.warn('Error loading diary data:', err);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadDiaryData();
+    }, [loadDiaryData])
+  );
+
+  const onRefresh = async () => {
+    setIsRefreshing(true);
+    await loadDiaryData();
+    setIsRefreshing(false);
+  };
+
+  const handleToggleSpeak = () => {
+    if (!Speech) return;
+    try {
+      if (isSpeaking) {
+        Speech.stop();
+        setIsSpeaking(false);
+      } else {
+        setIsSpeaking(true);
+        const speechLang = language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-IN';
+        const textToSpeak =
+          language === 'mr'
+            ? `राम राम ${farmerName}! आजच्या शेतकरी रोजनिशीमध्ये तुमचे स्वागत आहे. सध्या तुमच्याकडे ${crops.length} पिके असून, एकूण ${activities.length} शेती नोंदी आणि ${totalExpense} रुपये खर्च नोंदवला आहे. नवीन कामाचा फोटो काढून लगेच नोंद करा.`
+            : language === 'hi'
+              ? `नमस्ते ${farmerName}! किसान डायरी में आपका स्वागत है। आपके पास ${crops.length} फसलें और कुल ${activities.length} रिकॉर्ड हैं। नई गतिविधि की फोटो लेकर तुरंत दर्ज करें।`
+              : `Welcome ${farmerName} to AI Farming Diary. You have ${crops.length} active crops and ${activities.length} farming records. Tap the camera button to photograph and record an activity.`;
+
+        Speech.speak(textToSpeak, {
+          language: speechLang,
+          rate: 0.88,
+          onDone: () => setIsSpeaking(false),
+          onStopped: () => setIsSpeaking(false),
+          onError: () => setIsSpeaking(false),
+        });
+      }
+    } catch {
+      setIsSpeaking(false);
+    }
+  };
+
+  // Formatted date string in farmer's preferred language
+  const getFormattedDate = () => {
+    const today = new Date();
+    const daysMr = ['रविवार', 'सोमवार', 'मंगळवार', 'बुधवार', 'गुरुवार', 'शुक्रवार', 'शनिवार'];
+    const daysHi = ['रविवार', 'सोमवार', 'मंगलवार', 'बुधवार', 'गुरुवार', 'शुक्रवार', 'शनिवार'];
+    const daysEn = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const monthsMr = ['जानेवारी', 'फेब्रुवारी', 'मार्च', 'एप्रिल', 'मे', 'जून', 'जुलै', 'ऑगस्ट', 'सप्टेंबर', 'ऑक्टोबर', 'नोव्हेंबर', 'डिसेंबर'];
+
+    const dayName = language === 'mr' ? daysMr[today.getDay()] : language === 'hi' ? daysHi[today.getDay()] : daysEn[today.getDay()];
+    const dateNum = today.getDate();
+    const monthName = monthsMr[today.getMonth()];
+    const yearNum = today.getFullYear();
+
+    if (language === 'mr' || language === 'hi') {
+      return `${dayName}, ${dateNum} ${monthName} ${yearNum}`;
+    }
+    return `${dayName}, ${dateNum} ${today.toLocaleString('en', { month: 'short' })} ${yearNum}`;
+  };
+
+  const cycleLanguage = () => {
+    const nextLang = language === 'mr' ? 'hi' : language === 'hi' ? 'en' : 'mr';
+    setLanguage(nextLang);
   };
 
   return (
@@ -45,451 +131,320 @@ export default function DashboardScreen() {
       style={[styles.container, { backgroundColor: '#f8fafc' }]}
       contentContainerStyle={[
         styles.contentContainer,
-        { paddingTop: 12, paddingBottom: 40 },
+        { paddingTop: insets.top > 0 ? insets.top + 8 : 16, paddingBottom: 40 },
       ]}
-      showsVerticalScrollIndicator={false}>
-      {/* 1. App Header */}
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />}>
+      {/* 1. Farmer Welcome Header */}
       <View style={styles.headerRow}>
-        <View style={styles.brandCol}>
-          <View style={styles.logoRow}>
-            <MaterialCommunityIcons name="sprout" size={28} color="#16a34a" />
-            <Text style={styles.brandTitle}>KrushiAR</Text>
-          </View>
-          <Text style={styles.brandTagline}>{t.tagline}</Text>
+        <View style={styles.farmerGreetCol}>
+          <Text style={styles.greetSubText}>
+            {language === 'mr' ? '🌾 शेतकरी रोजनिशी' : language === 'hi' ? '🌾 किसान डायरी' : '🌾 AI Farming Diary'}
+          </Text>
+          <Text style={styles.farmerNameTitle}>
+            {language === 'mr'
+              ? `राम राम, ${farmerName.split(' ')[0]}जी!`
+              : language === 'hi'
+                ? `नमस्ते, ${farmerName.split(' ')[0]}जी!`
+                : `Hello, ${farmerName.split(' ')[0]}!`}
+          </Text>
+          <Text style={styles.todayDateText}>📅 {getFormattedDate()}</Text>
         </View>
 
-        <View style={styles.headerRightRow}>
+        <View style={styles.headerControlsRight}>
+          {/* Audio Speaker */}
+          <TouchableOpacity
+            style={[styles.audioIconBtn, isSpeaking && styles.audioIconBtnActive]}
+            onPress={handleToggleSpeak}
+            activeOpacity={0.7}>
+            <Ionicons
+              name={isSpeaking ? 'stop-circle' : 'volume-high'}
+              size={20}
+              color={isSpeaking ? '#ffffff' : '#15803d'}
+            />
+          </TouchableOpacity>
+
           {/* Location Chip */}
           <TouchableOpacity
             style={styles.locationChip}
             onPress={() => setShowLocationModal(true)}
-            activeOpacity={0.8}>
-            <Ionicons name="location-sharp" size={14} color="#16a34a" />
-            <View style={{ marginLeft: 3 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={styles.locationCity}>{location.displayCity},</Text>
-                <Ionicons name="chevron-down" size={11} color="#0f172a" style={{ marginLeft: 2 }} />
-              </View>
-              <Text style={styles.locationDistrict}>{location.displayDistrict}</Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Notification Bell */}
-          <TouchableOpacity
-            style={styles.bellBtn}
-            onPress={() => router.push('/notifications')}
-            activeOpacity={0.8}>
-            <Ionicons name="notifications-outline" size={22} color="#1e293b" />
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>3</Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Profile Avatar */}
-          <TouchableOpacity onPress={() => router.push('/(tabs)/settings')}>
-            <Image
-              source={{ uri: 'https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?w=200&q=80' }}
-              style={styles.avatarImg}
-            />
+            activeOpacity={0.7}>
+            <Ionicons name="location-sharp" size={14} color="#15803d" />
+            <Text style={styles.locationChipText}>{location.displayCity}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* 2. Hero Banner */}
-      <View style={styles.heroBanner}>
-        <View style={styles.heroTextCol}>
-          <Text style={styles.heroTitle}>{t.heroTitle}</Text>
-          <Text style={styles.heroSubtitle}>{t.heroSub}</Text>
-        </View>
-        <Image
-          source={{ uri: 'https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?w=400&q=80' }}
-          style={styles.heroFarmerImg}
-        />
-      </View>
-
-      {/* 3. Weather Card */}
+      {/* 2. ⭐ PRIMARY HERO ACTION: "फोटो काढा आणि नोंद करा" (Most Prominent Button on Screen) */}
       <TouchableOpacity
-        style={styles.weatherCard}
-        activeOpacity={0.88}
-        onPress={() => router.push('/weather')}>
-        <View style={styles.weatherLeft}>
-          <View style={styles.weatherIconTemp}>
-            <Ionicons name="sunny" size={28} color="#f59e0b" />
-            <Text style={styles.weatherTemp}>32°C</Text>
+        style={styles.primaryPhotoHeroBtn}
+        onPress={() => router.push('/add-activity')}
+        activeOpacity={0.88}>
+        <View style={styles.primaryPhotoContent}>
+          <View style={styles.cameraIconBigCircle}>
+            <Ionicons name="camera" size={36} color="#15803d" />
           </View>
-          <Text style={styles.weatherCondition}>{t.partlyCloudy}</Text>
-        </View>
-
-        <View style={styles.weatherMetricsRow}>
-          <View style={styles.weatherMetric}>
-            <View style={styles.metricValRow}>
-              <Ionicons name="water" size={12} color="#0284c7" />
-              <Text style={styles.metricValText}> 10%</Text>
+          <View style={{ flex: 1 }}>
+            <View style={styles.heroBadgeRow}>
+              <View style={styles.heroBadge}>
+                <Ionicons name="sparkles" size={13} color="#ffffff" />
+                <Text style={styles.heroBadgeText}>
+                  {language === 'mr' ? '१-टॅप AI नोंद' : language === 'hi' ? '१-टैप AI रिकॉर्ड' : '1-Tap AI Record'}
+                </Text>
+              </View>
             </View>
-            <Text style={styles.metricLabel}>{t.rainChance}</Text>
+            <Text style={styles.primaryHeroTitle}>
+              {language === 'mr'
+                ? 'फोटो काढा आणि नोंद करा'
+                : language === 'hi'
+                  ? 'फोटो लें और दर्ज करें'
+                  : 'Take Photo & Record'}
+            </Text>
+            <Text style={styles.primaryHeroSub}>
+              {language === 'mr'
+                ? 'शेतातील कामाचा फोटो काढून आवाजात सांगा'
+                : language === 'hi'
+                  ? 'खेत के काम का फोटो लेकर आवाज़ में बताएं'
+                  : 'Capture field work and speak in your language'}
+            </Text>
           </View>
-
-          <View style={styles.weatherMetric}>
-            <View style={styles.metricValRow}>
-              <Ionicons name="water-outline" size={12} color="#0284c7" />
-              <Text style={styles.metricValText}> 58%</Text>
-            </View>
-            <Text style={styles.metricLabel}>{t.humidity}</Text>
-          </View>
-
-          <View style={styles.weatherMetric}>
-            <View style={styles.metricValRow}>
-              <MaterialCommunityIcons name="weather-windy" size={12} color="#0284c7" />
-              <Text style={styles.metricValText}> 12 km/h</Text>
-            </View>
-            <Text style={styles.metricLabel}>{t.windSpeed}</Text>
-          </View>
-
-          <TouchableOpacity
-            style={styles.weatherLocation}
-            onPress={(e) => {
-              e.stopPropagation?.();
-              setShowLocationModal(true);
-            }}
-            activeOpacity={0.8}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Ionicons name="location-sharp" size={11} color="#0f172a" />
-              <Text style={styles.weatherLocName}> {location.displayCity}</Text>
-            </View>
-            <Text style={styles.weatherLocSub}>{location.displayDistrict}, {location.state}</Text>
-            <Text style={styles.weatherDate}>Tue, 7 Oct 2026</Text>
-          </TouchableOpacity>
+          <Ionicons name="arrow-forward-circle" size={32} color="#ffffff" />
         </View>
       </TouchableOpacity>
 
-      {/* 4. Quick Action Buttons Grid (4 items) */}
-      <View style={styles.quickGrid}>
-        <TouchableOpacity
-          style={[styles.quickCard, { backgroundColor: '#e8f5e9' }]}
-          onPress={() => router.push('/(tabs)/scan')}>
-          <View style={[styles.quickIconWrap, { backgroundColor: '#dcfce7' }]}>
-            <Ionicons name="camera" size={22} color="#16a34a" />
-          </View>
-          <Text style={styles.quickLabel}>{t.arScanCrops}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.quickCard, { backgroundColor: '#e0f2fe' }]}>
-          <View style={[styles.quickIconWrap, { backgroundColor: '#bae6fd' }]}>
-            <Ionicons name="water" size={22} color="#0284c7" />
-          </View>
-          <Text style={styles.quickLabel}>{t.irrigationGuide}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.quickCard, { backgroundColor: '#f0fdf4' }]}>
-          <View style={[styles.quickIconWrap, { backgroundColor: '#bbf7d0' }]}>
-            <MaterialCommunityIcons name="sprout" size={22} color="#16a34a" />
-          </View>
-          <Text style={styles.quickLabel}>{t.fertilizerRecommend}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.quickCard, { backgroundColor: '#fff8e1' }]}
-          onPress={() => router.push('/(tabs)/market')}>
-          <View style={[styles.quickIconWrap, { backgroundColor: '#fef3c7' }]}>
-            <MaterialCommunityIcons name="cash-multiple" size={22} color="#d97706" />
-          </View>
-          <Text style={styles.quickLabel}>{t.marketPrices}</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* 5. Side-by-Side: Today's Farm Tasks & Market Prices */}
-      <View style={styles.splitRow}>
-        {/* Left Card: Tasks */}
-        <View style={styles.splitCard}>
-          <View style={styles.splitHeader}>
-            <Text style={styles.splitTitle}>{t.todaysTasks}</Text>
-            <TouchableOpacity onPress={() => router.push('/tasks')}>
-              <Text style={styles.splitSeeAll}>{t.seeAll}</Text>
-            </TouchableOpacity>
-          </View>
-
-          {farmTasks.map((task) => {
-            const isDone = completedTaskIds.includes(task.id);
-            return (
-              <TouchableOpacity
-                key={task.id}
-                style={styles.taskCheckRow}
-                onPress={() => toggleTask(task.id)}>
-                <Ionicons
-                  name={isDone ? 'checkbox' : 'square-outline'}
-                  size={18}
-                  color={isDone ? '#16a34a' : '#94a3b8'}
-                />
-                <Text
-                  style={[
-                    styles.taskItemText,
-                    isDone && { textDecorationLine: 'line-through', color: '#94a3b8' },
-                  ]}>
-                  {task.title}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+      {/* 3. ⭐ SECONDARY ACTION: "बोलून नोंद करा" (Voice Only Record) */}
+      <TouchableOpacity
+        style={styles.secondaryVoiceBtn}
+        onPress={() => router.push('/add-activity')}
+        activeOpacity={0.8}>
+        <View style={styles.micIconCircle}>
+          <Ionicons name="mic" size={24} color="#ffffff" />
         </View>
-
-        {/* Right Card: Market Prices */}
-        <View style={styles.splitCard}>
-          <View style={styles.splitHeader}>
-            <Text style={styles.splitTitle}>{t.marketPrices.replace('\n', ' ')}</Text>
-            <TouchableOpacity onPress={() => router.push('/(tabs)/market')}>
-              <Text style={styles.splitSeeAll}>{t.seeAll}</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.mandiSub}>{t.mandiDistrictSub}</Text>
-
-          {/* Soybean */}
-          <View style={styles.mandiItemRow}>
-            <View style={styles.mandiLeftCol}>
-              <View style={[styles.mandiIconDot, { backgroundColor: '#fef3c7' }]}>
-                <MaterialCommunityIcons name="seed" size={13} color="#d97706" />
-              </View>
-              <Text style={styles.mandiCropText}>{t.cropSoybean}</Text>
-            </View>
-            <View style={styles.mandiRightCol}>
-              <Text style={styles.mandiPriceText}>₹ 4,800</Text>
-              <Text style={styles.mandiRateGreen}>↑ 2%</Text>
-            </View>
-          </View>
-
-          {/* Cotton */}
-          <View style={styles.mandiItemRow}>
-            <View style={styles.mandiLeftCol}>
-              <View style={[styles.mandiIconDot, { backgroundColor: '#f1f5f9' }]}>
-                <MaterialCommunityIcons name="cloud" size={13} color="#64748b" />
-              </View>
-              <Text style={styles.mandiCropText}>{t.cropCotton}</Text>
-            </View>
-            <View style={styles.mandiRightCol}>
-              <Text style={styles.mandiPriceText}>₹ 7,200</Text>
-              <Text style={styles.mandiRateRed}>↓ 1%</Text>
-            </View>
-          </View>
-
-          {/* Maize */}
-          <View style={styles.mandiItemRow}>
-            <View style={styles.mandiLeftCol}>
-              <View style={[styles.mandiIconDot, { backgroundColor: '#fef9c3' }]}>
-                <MaterialCommunityIcons name="corn" size={13} color="#ca8a04" />
-              </View>
-              <Text style={styles.mandiCropText}>{t.cropMaize}</Text>
-            </View>
-            <View style={styles.mandiRightCol}>
-              <Text style={styles.mandiPriceText}>₹ 2,150</Text>
-              <Text style={styles.mandiRateGreen}>↑ 3%</Text>
-            </View>
-          </View>
-
-          {/* Onion */}
-          <View style={styles.mandiItemRow}>
-            <View style={styles.mandiLeftCol}>
-              <View style={[styles.mandiIconDot, { backgroundColor: '#fee2e2' }]}>
-                <MaterialCommunityIcons name="circle" size={13} color="#dc2626" />
-              </View>
-              <Text style={styles.mandiCropText}>{t.cropOnion}</Text>
-            </View>
-            <View style={styles.mandiRightCol}>
-              <Text style={styles.mandiPriceText}>₹ 1,850</Text>
-              <Text style={styles.mandiRateGreen}>↑ 5%</Text>
-            </View>
-          </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.secondaryVoiceTitle}>
+            {language === 'mr'
+              ? '🎙️ बोलून नोंद करा'
+              : language === 'hi'
+                ? '🎙️ बोलकर दर्ज करें'
+                : '🎙️ Voice Record'}
+          </Text>
+          <Text style={styles.secondaryVoiceSub}>
+            {language === 'mr'
+              ? 'उदा. "आज मी टोमॅटोची लागवड केली"'
+              : language === 'hi'
+                ? 'उदा. "आज मैंने टमाटर की बुवाई की"'
+                : 'e.g. "Today I planted tomatoes"'}
+          </Text>
         </View>
-      </View>
+        <Ionicons name="chevron-forward" size={20} color="#64748b" />
+      </TouchableOpacity>
 
-      {/* 6. "My Crops" Section */}
-      <View style={styles.sectionTitleRow}>
-        <Text style={styles.sectionHeading}>{t.myCrops}</Text>
+      {/* 4. 4 CORE DIARY SHORTCUT TILES (माझी पिके, इतिहास, खर्च, शेतीला विचारा) */}
+      <View style={styles.shortcutTilesGrid}>
+        {/* 1. My Crops */}
         <TouchableOpacity
-          style={styles.seeAllBtn}
-          onPress={() => router.push('/(tabs)/farm')}>
-          <Text style={styles.seeAllText}>{t.seeAll}</Text>
+          style={styles.shortcutTile}
+          onPress={() => router.push('/(tabs)/farm')}
+          activeOpacity={0.75}>
+          <View style={[styles.tileIconCircle, { backgroundColor: '#dcfce7' }]}>
+            <MaterialCommunityIcons name="sprout" size={26} color="#15803d" />
+          </View>
+          <Text style={styles.tileTitle}>
+            {language === 'mr' ? 'माझी पिके' : language === 'hi' ? 'मेरी फसलें' : 'My Crops'}
+          </Text>
+          <Text style={styles.tileSub}>
+            {crops.length} {language === 'mr' ? 'पिके शेतात' : language === 'hi' ? 'फसलें' : 'Crops'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* 2. Farming History */}
+        <TouchableOpacity
+          style={styles.shortcutTile}
+          onPress={() => router.push('/(tabs)/market')}
+          activeOpacity={0.75}>
+          <View style={[styles.tileIconCircle, { backgroundColor: '#e0f2fe' }]}>
+            <Ionicons name="book" size={24} color="#0284c7" />
+          </View>
+          <Text style={styles.tileTitle}>
+            {language === 'mr' ? 'शेती इतिहास' : language === 'hi' ? 'खेती इतिहास' : 'Farm History'}
+          </Text>
+          <Text style={styles.tileSub}>
+            {activities.length} {language === 'mr' ? 'नोंदी' : language === 'hi' ? 'रिकॉर्ड' : 'Records'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* 3. Farm Expenses */}
+        <TouchableOpacity
+          style={styles.shortcutTile}
+          onPress={() => router.push('/(tabs)/farm')}
+          activeOpacity={0.75}>
+          <View style={[styles.tileIconCircle, { backgroundColor: '#fef9c3' }]}>
+            <MaterialCommunityIcons name="cash-multiple" size={26} color="#ca8a04" />
+          </View>
+          <Text style={styles.tileTitle}>
+            {language === 'mr' ? 'शेतीचा खर्च' : language === 'hi' ? 'खेती खर्च' : 'Expenses'}
+          </Text>
+          <Text style={styles.tileSub}>₹ {totalExpense.toLocaleString('en-IN')}</Text>
+        </TouchableOpacity>
+
+        {/* 4. Ask My Farm (AI Memory) */}
+        <TouchableOpacity
+          style={styles.shortcutTile}
+          onPress={() => router.push('/add-activity')}
+          activeOpacity={0.75}>
+          <View style={[styles.tileIconCircle, { backgroundColor: '#f3e8ff' }]}>
+            <Ionicons name="chatbubbles" size={24} color="#9333ea" />
+          </View>
+          <Text style={styles.tileTitle}>
+            {language === 'mr' ? 'शेतीला विचारा' : language === 'hi' ? 'खेत से पूछें' : 'Ask My Farm'}
+          </Text>
+          <Text style={styles.tileSub}>
+            {language === 'mr' ? 'AI आठवण' : language === 'hi' ? 'AI स्मरण' : 'AI Memory'}
+          </Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cropsScroll}>
-        {/* Crop 1: Soybean */}
-        <TouchableOpacity
-          style={styles.cropCard}
-          activeOpacity={0.8}
-          onPress={() => router.push('/crop-details')}>
-          <Image
-            source={{ uri: 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&q=80' }}
-            style={styles.cropImg}
-          />
-          <View style={styles.cropInfo}>
-            <Text style={styles.cropTitle}>{t.cropSoybean}</Text>
-            <Text style={styles.cropStage}>{t.stageVegetative}</Text>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: '40%', backgroundColor: '#16a34a' }]} />
-            </View>
-            <Text style={styles.cropDays}>25 {t.daysLeftText}</Text>
+      {/* 5. ASK MY FARM QUICK PROMPT BANNER */}
+      <TouchableOpacity
+        style={styles.askBannerCard}
+        onPress={() => router.push('/add-activity')}
+        activeOpacity={0.8}>
+        <View style={styles.askBannerLeft}>
+          <View style={styles.askBadge}>
+            <Ionicons name="bulb" size={13} color="#ffffff" />
+            <Text style={styles.askBadgeText}>
+              {language === 'mr' ? 'माझ्या शेतीची आठवण' : language === 'hi' ? 'खेत की याददाश्त' : 'Farm Memory'}
+            </Text>
           </View>
-        </TouchableOpacity>
+          <Text style={styles.askBannerTitle}>
+            {language === 'mr'
+              ? '💬 "मी टोमॅटोची लागवड कधी केली?"'
+              : language === 'hi'
+                ? '💬 "मैंने टमाटर की बुवाई कब की थी?"'
+                : '💬 "When did I plant tomatoes?"'}
+          </Text>
+          <Text style={styles.askBannerSub}>
+            {language === 'mr'
+              ? 'खताचा खर्च किंवा मागची फवारणी AI ला बोलून विचारा'
+              : language === 'hi'
+                ? 'पिछला खर्च या छिड़काव AI से बोलकर पूछें'
+                : 'Ask AI about your past sprays, fertilizers, and costs'}
+          </Text>
+        </View>
+        <Ionicons name="arrow-forward" size={22} color="#15803d" />
+      </TouchableOpacity>
 
-        {/* Crop 2: Cotton */}
-        <TouchableOpacity
-          style={styles.cropCard}
-          activeOpacity={0.8}
-          onPress={() => router.push('/crop-details')}>
-          <Image
-            source={{ uri: 'https://images.unsplash.com/photo-1606041008023-472dfb5e530f?w=400&q=80' }}
-            style={styles.cropImg}
-          />
-          <View style={styles.cropInfo}>
-            <Text style={styles.cropTitle}>{t.cropCotton}</Text>
-            <Text style={styles.cropStage}>{t.stageFlowering}</Text>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: '65%', backgroundColor: '#f59e0b' }]} />
-            </View>
-            <Text style={styles.cropDays}>45 {t.daysLeftText}</Text>
+      {/* 6. RECENT FARMING ACTIVITIES (नुकत्याच केलेल्या नोंदी) */}
+      <View style={styles.recentSectionWrap}>
+        <View style={styles.recentHeaderRow}>
+          <View>
+            <Text style={styles.recentTitle}>
+              {language === 'mr'
+                ? 'नुकत्याच केलेल्या नोंदी'
+                : language === 'hi'
+                  ? 'हाल की गतिविधियां'
+                  : 'Recent Activities'}
+            </Text>
+            <Text style={styles.recentSub}>
+              {language === 'mr'
+                ? 'तुमच्या शेतातील चालू कामांचा इतिहास'
+                : language === 'hi'
+                  ? 'आपके खेत का कार्य इतिहास'
+                  : 'Timeline of your farm activities'}
+            </Text>
           </View>
-        </TouchableOpacity>
 
-        {/* Crop 3: Maize */}
-        <TouchableOpacity
-          style={styles.cropCard}
-          activeOpacity={0.8}
-          onPress={() => router.push('/crop-details')}>
-          <Image
-            source={{ uri: 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=400&q=80' }}
-            style={styles.cropImg}
-          />
-          <View style={styles.cropInfo}>
-            <Text style={styles.cropTitle}>{t.cropMaize}</Text>
-            <Text style={styles.cropStage}>{t.stageGrowing}</Text>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: '50%', backgroundColor: '#16a34a' }]} />
-            </View>
-            <Text style={styles.cropDays}>30 {t.daysLeftText}</Text>
-          </View>
-        </TouchableOpacity>
-
-        {/* Crop 4: Onion */}
-        <TouchableOpacity
-          style={styles.cropCard}
-          activeOpacity={0.8}
-          onPress={() => router.push('/crop-details')}>
-          <Image
-            source={{ uri: 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=400&q=80' }}
-            style={styles.cropImg}
-          />
-          <View style={styles.cropInfo}>
-            <Text style={styles.cropTitle}>{t.cropOnion}</Text>
-            <Text style={styles.cropStage}>{t.stageLandPrep}</Text>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: '20%', backgroundColor: '#16a34a' }]} />
-            </View>
-            <Text style={styles.cropDays}>60 {t.daysLeftText}</Text>
-          </View>
-        </TouchableOpacity>
-
-        {/* Add Crop Card */}
-        <TouchableOpacity
-          style={styles.addCropCard}
-          onPress={() => router.push('/(tabs)/farm')}>
-          <View style={styles.addCircle}>
-            <Ionicons name="add" size={26} color="#ffffff" />
-          </View>
-          <Text style={styles.addCropLabel}>{t.addCrop}</Text>
-        </TouchableOpacity>
-      </ScrollView>
-
-      {/* 7. Featured "AR Farm Scan" Card */}
-      <View style={styles.arBannerCard}>
-        <View style={styles.arLeftContent}>
-          <View style={styles.arBadge}>
-            <MaterialCommunityIcons name="line-scan" size={18} color="#ffffff" />
-            <Text style={styles.arBadgeText}>AR</Text>
-          </View>
-          <Text style={styles.arHeading}>{t.arFarmScan}</Text>
-          <Text style={styles.arDesc}>{t.arFarmScanDesc}</Text>
           <TouchableOpacity
-            style={styles.arStartBtn}
-            onPress={() => router.push('/(tabs)/scan')}>
-            <Text style={styles.arStartBtnText}>{t.startScanning}</Text>
+            style={styles.seeAllBtn}
+            onPress={() => router.push('/(tabs)/market')}
+            activeOpacity={0.7}>
+            <Text style={styles.seeAllBtnText}>
+              {language === 'mr' ? 'सर्व नोंदी →' : language === 'hi' ? 'सभी देखें →' : 'See All →'}
+            </Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.arScanGraphicWrap}>
-          <Image
-            source={{ uri: 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=300&q=80' }}
-            style={styles.arPreviewImg}
-          />
-          <View style={styles.arViewBox}>
-            <Text style={styles.arTag}>AR</Text>
+        {activities.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <MaterialCommunityIcons name="book-open-page-variant" size={42} color="#94a3b8" />
+            <Text style={styles.emptyTitle}>
+              {language === 'mr' ? 'अजून कोणतीही नोंद नाही' : language === 'hi' ? 'अभी कोई रिकॉर्ड नहीं' : 'No activities yet'}
+            </Text>
+            <Text style={styles.emptySub}>
+              {language === 'mr'
+                ? 'वर दिलेल्या "फोटो काढा आणि नोंद करा" बटनावर टॅप करून पहिली नोंद करा.'
+                : language === 'hi'
+                  ? 'ऊपर दिए बटन से पहली गतिविधि दर्ज करें।'
+                  : 'Tap "Take Photo & Record" to add your first activity.'}
+            </Text>
           </View>
-        </View>
-      </View>
+        ) : (
+          <View style={styles.activitiesStack}>
+            {activities.slice(0, 5).map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                style={styles.activityFeedCard}
+                onPress={() => router.push({ pathname: '/activity-detail', params: { id: item.id } })}
+                activeOpacity={0.8}>
+                {/* Photo Thumbnail */}
+                <Image
+                  source={{
+                    uri:
+                      item.photoUri ||
+                      'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=200&q=80',
+                  }}
+                  style={styles.activityThumb}
+                />
 
-      {/* 8. Government Schemes & Agri Products Cards */}
-      <View style={styles.twoCardsRow}>
-        <TouchableOpacity style={[styles.bannerCardItem, { backgroundColor: '#fff1f2', borderColor: '#ffe4e6' }]}>
-          <View style={[styles.bannerCardIconWrap, { backgroundColor: '#ffe4e6' }]}>
-            <Ionicons name="business" size={20} color="#e11d48" />
-          </View>
-          <View style={styles.bannerCardTextWrap}>
-            <Text style={styles.bannerCardTitle}>{t.govtSchemes}</Text>
-            <Text style={styles.bannerCardDesc}>{t.govtSchemesSub}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color="#e11d48" />
-        </TouchableOpacity>
+                {/* Details */}
+                <View style={styles.activityFeedContent}>
+                  <View style={styles.activityTopMetaRow}>
+                    <View style={styles.cropTagBadge}>
+                      <Text style={styles.cropTagBadgeText}>{item.cropName}</Text>
+                    </View>
+                    <Text style={styles.activityDateLabel}>
+                      {item.date ? item.date.split('T')[0] : ''}
+                    </Text>
+                  </View>
 
-        <TouchableOpacity style={[styles.bannerCardItem, { backgroundColor: '#fffbeb', borderColor: '#fef3c7' }]}>
-          <View style={[styles.bannerCardIconWrap, { backgroundColor: '#fef3c7' }]}>
-            <Ionicons name="cart" size={20} color="#f59e0b" />
-          </View>
-          <View style={styles.bannerCardTextWrap}>
-            <Text style={styles.bannerCardTitle}>{t.agriProducts}</Text>
-            <Text style={styles.bannerCardDesc}>{t.agriProductsSub}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color="#f59e0b" />
-        </TouchableOpacity>
-      </View>
+                  <Text style={styles.activityCardTitle} numberOfLines={1}>
+                    {item.activityTitle}
+                  </Text>
 
-      {/* 9. Quick Services Row */}
-      <View style={styles.tripleServicesRow}>
-        <TouchableOpacity style={[styles.servicePillCard, { backgroundColor: '#eff6ff', borderColor: '#dbeafe' }]}>
-          <View style={[styles.serviceIconWrap, { backgroundColor: '#bfdbfe' }]}>
-            <Ionicons name="bar-chart" size={18} color="#2563eb" />
-          </View>
-          <Text style={styles.servicePillTitle}>{t.farmAnalytics}</Text>
-          <Text style={styles.servicePillDesc}>{t.farmAnalyticsSub}</Text>
-        </TouchableOpacity>
+                  <Text style={styles.activityNotesText} numberOfLines={2}>
+                    {item.notes || item.voiceTranscript || 'तपशील नोंदवला आहे.'}
+                  </Text>
 
-        <TouchableOpacity
-          style={[styles.servicePillCard, { backgroundColor: '#f0f9ff', borderColor: '#e0f2fe' }]}
-          onPress={() => router.push('/weather')}
-          activeOpacity={0.8}>
-          <View style={[styles.serviceIconWrap, { backgroundColor: '#bae6fd' }]}>
-            <Ionicons name="rainy" size={18} color="#0284c7" />
-          </View>
-          <Text style={styles.servicePillTitle}>{t.weatherAdvisory}</Text>
-          <Text style={styles.servicePillDesc}>{t.weatherAdvisorySub}</Text>
-        </TouchableOpacity>
-      </View>
+                  {/* Expense Badge & Location Tag */}
+                  <View style={styles.activityBottomRow}>
+                    {item.totalExpense > 0 ? (
+                      <View style={styles.expenseTag}>
+                        <Text style={styles.expenseTagText}>
+                          खर्च: ₹ {item.totalExpense.toLocaleString('en-IN')}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={[styles.expenseTag, { backgroundColor: '#f1f5f9' }]}>
+                        <Text style={[styles.expenseTagText, { color: '#64748b' }]}>
+                          खर्च नोंद नाही
+                        </Text>
+                      </View>
+                    )}
 
-      {/* 10. Bottom Promo Banner */}
-      <View style={styles.bottomPromoCard}>
-        <Image
-          source={{ uri: 'https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?w=300&q=80' }}
-          style={styles.promoFarmerThumb}
-        />
-        <View style={styles.promoTextWrap}>
-          <View style={styles.promoHeadRow}>
-            <Ionicons name="bulb" size={16} color="#f59e0b" />
-            <Text style={styles.promoTitle}> {t.promoTitle}</Text>
+                    {item.location?.placeName && (
+                      <View style={styles.locTag}>
+                        <Ionicons name="location-outline" size={12} color="#64748b" />
+                        <Text style={styles.locTagText}>{item.location.placeName}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+              </TouchableOpacity>
+            ))}
           </View>
-          <Text style={styles.promoDesc}>{t.promoDesc}</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.promoBtn}
-          onPress={() => router.push('/(tabs)/scan')}>
-          <Text style={styles.promoBtnText}>{t.tryNow}</Text>
-        </TouchableOpacity>
+        )}
       </View>
     </ScrollView>
   );
@@ -502,610 +457,423 @@ const styles = StyleSheet.create({
   contentContainer: {
     paddingHorizontal: 14,
   },
-  /* Header */
+
+  /* 1. Header */
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  farmerGreetCol: {
+    flex: 1,
+  },
+  greetSubText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#15803d',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  farmerNameTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#0f172a',
+    marginTop: 2,
+  },
+  todayDateText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#64748b',
+    marginTop: 2,
+  },
+  headerControlsRight: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    gap: 6,
   },
-  brandCol: {
-    justifyContent: 'center',
-  },
-  logoRow: {
+  langPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    borderRadius: 18,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    minHeight: 36,
   },
-  brandTitle: {
-    fontSize: 20,
+  langPillText: {
+    fontSize: 11.5,
     fontWeight: '800',
     color: '#0f172a',
-    letterSpacing: -0.3,
   },
-  brandTagline: {
-    fontSize: 9.5,
-    color: '#64748b',
-    marginTop: 1,
-  },
-  headerRightRow: {
-    flexDirection: 'row',
+  audioIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: '#86efac',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
+  },
+  audioIconBtnActive: {
+    backgroundColor: '#dc2626',
+    borderColor: '#b91c1c',
   },
   locationChip: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 2,
     backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    borderRadius: 18,
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 5,
+    minHeight: 36,
   },
-  locationCity: {
+  locationChipText: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#0f172a',
   },
-  locationDistrict: {
-    fontSize: 9,
-    color: '#64748b',
+
+  /* 2. Primary Photo Hero Button */
+  primaryPhotoHeroBtn: {
+    backgroundColor: '#15803d',
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: '#166534',
+    shadowColor: '#15803d',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 5,
   },
-  bellBtn: {
-    position: 'relative',
-    padding: 6,
+  primaryPhotoContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
-  badge: {
-    position: 'absolute',
-    top: 2,
-    right: 2,
-    backgroundColor: '#ef4444',
-    borderRadius: 8,
-    minWidth: 15,
-    height: 15,
+  cameraIconBigCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 2,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
   },
-  badgeText: {
+  heroBadgeRow: {
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  heroBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  heroBadgeText: {
     color: '#ffffff',
-    fontSize: 9,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '800',
   },
-  avatarImg: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1.5,
-    borderColor: '#e2e8f0',
+  primaryHeroTitle: {
+    fontSize: 19,
+    fontWeight: '900',
+    color: '#ffffff',
+    letterSpacing: -0.3,
+  },
+  primaryHeroSub: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#dcfce7',
+    marginTop: 2,
   },
 
-  /* Hero Banner */
-  heroBanner: {
+  /* 3. Secondary Voice Button */
+  secondaryVoiceBtn: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#f1f5f9',
+    gap: 12,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: 1.5,
+    borderColor: '#86efac',
+    shadowColor: '#15803d',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  micIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#15803d',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secondaryVoiceTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  secondaryVoiceSub: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+    marginTop: 1,
+  },
+
+  /* 4. 4 Shortcut Tiles */
+  shortcutTilesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 14,
+  },
+  shortcutTile: {
+    width: '48.5%',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 105,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  tileIconCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  tileTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0f172a',
+    textAlign: 'center',
+  },
+  tileSub: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#15803d',
+    marginTop: 2,
+    textAlign: 'center',
+  },
+
+  /* 5. Ask My Farm Prompt Banner */
+  askBannerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1.5,
+    borderColor: '#86efac',
     borderRadius: 16,
     padding: 14,
-    marginBottom: 12,
-    overflow: 'hidden',
+    marginBottom: 16,
   },
-  heroTextCol: {
+  askBannerLeft: {
     flex: 1,
     paddingRight: 8,
   },
-  heroTitle: {
-    fontSize: 21,
-    fontWeight: '800',
-    color: '#0f172a',
-    lineHeight: 27,
-  },
-  heroSubtitle: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#475569',
-    lineHeight: 17,
-    marginTop: 6,
-  },
-  heroFarmerImg: {
-    width: 100,
-    height: 90,
-    borderRadius: 12,
-  },
-
-  /* Weather Card */
-  weatherCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4 },
-      android: { elevation: 1 },
-    }),
-  },
-  weatherLeft: {
-    paddingRight: 10,
-    borderRightWidth: 1,
-    borderRightColor: '#f1f5f9',
-  },
-  weatherIconTemp: {
+  askBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    backgroundColor: '#15803d',
+    alignSelf: 'flex-start',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginBottom: 4,
   },
-  weatherTemp: {
-    fontSize: 22,
+  askBadgeText: {
+    color: '#ffffff',
+    fontSize: 11,
     fontWeight: '800',
+  },
+  askBannerTitle: {
+    fontSize: 15,
+    fontWeight: '900',
     color: '#0f172a',
   },
-  weatherCondition: {
-    fontSize: 11,
-    color: '#64748b',
-    marginTop: 2,
-  },
-  weatherMetricsRow: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingLeft: 6,
-  },
-  weatherMetric: {
-    alignItems: 'center',
-  },
-  metricValRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  metricValText: {
+  askBannerSub: {
     fontSize: 12,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  metricLabel: {
-    fontSize: 9.5,
-    color: '#64748b',
+    fontWeight: '600',
+    color: '#475569',
     marginTop: 2,
   },
-  weatherLocation: {
-    alignItems: 'flex-end',
-  },
-  weatherLocName: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  weatherLocSub: {
-    fontSize: 9,
-    color: '#64748b',
-  },
-  weatherDate: {
-    fontSize: 9,
-    color: '#94a3b8',
-    marginTop: 1,
-  },
 
-  /* Quick Actions (6 items) */
-  quickGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-    gap: 6,
-  },
-  quickCard: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  quickIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  quickLabel: {
-    fontSize: 9.5,
-    fontWeight: '600',
-    color: '#1e293b',
-    textAlign: 'center',
-    lineHeight: 13,
-  },
-
-  /* Section Title */
-  sectionTitleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  /* 6. Recent Activities */
+  recentSectionWrap: {
     marginBottom: 10,
   },
-  sectionHeading: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  seeAllBtn: {
-    paddingVertical: 2,
-    paddingHorizontal: 4,
-  },
-  seeAllText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#16a34a',
-  },
-
-  /* Crops Horizontal */
-  cropsScroll: {
-    gap: 10,
-    paddingBottom: 4,
-    marginBottom: 16,
-  },
-  cropCard: {
-    width: 120,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    overflow: 'hidden',
-  },
-  cropImg: {
-    width: '100%',
-    height: 70,
-  },
-  cropInfo: {
-    padding: 8,
-  },
-  cropTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  cropStage: {
-    fontSize: 9.5,
-    color: '#64748b',
-    marginTop: 1,
-  },
-  progressTrack: {
-    height: 4,
-    backgroundColor: '#e2e8f0',
-    borderRadius: 2,
-    marginVertical: 6,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
-  cropDays: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: '#64748b',
-  },
-  addCropCard: {
-    width: 100,
-    backgroundColor: '#f0fdf4',
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#86efac',
-    borderStyle: 'dashed',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-  },
-  addCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#16a34a',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  addCropLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#16a34a',
-  },
-
-  /* AR Featured Banner */
-  arBannerCard: {
-    backgroundColor: '#064e3b',
-    borderRadius: 16,
-    padding: 16,
+  recentHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
-    overflow: 'hidden',
-  },
-  arLeftContent: {
-    flex: 1,
-    paddingRight: 10,
-  },
-  arBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 4,
-  },
-  arBadgeText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
-  arHeading: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#ffffff',
-    marginBottom: 4,
-  },
-  arDesc: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.85)',
-    lineHeight: 16,
+    alignItems: 'flex-start',
     marginBottom: 12,
   },
-  arStartBtn: {
-    backgroundColor: '#16a34a',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    alignSelf: 'flex-start',
-  },
-  arStartBtnText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  arScanGraphicWrap: {
-    width: 85,
-    height: 100,
-    borderRadius: 12,
-    overflow: 'hidden',
-    position: 'relative',
-    borderWidth: 2,
-    borderColor: '#22c55e',
-  },
-  arPreviewImg: {
-    width: '100%',
-    height: '100%',
-  },
-  arViewBox: {
-    position: 'absolute',
-    bottom: 6,
-    right: 6,
-    backgroundColor: 'rgba(22, 163, 74, 0.85)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  arTag: {
-    color: '#ffffff',
-    fontSize: 9,
-    fontWeight: '800',
-  },
-
-  /* Split Tasks & Mandi Row */
-  splitRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 16,
-  },
-  splitCard: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  splitHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  splitTitle: {
-    fontSize: 13,
-    fontWeight: '700',
+  recentTitle: {
+    fontSize: 18,
+    fontWeight: '900',
     color: '#0f172a',
   },
-  splitSeeAll: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: '#16a34a',
-  },
-  mandiSub: {
-    fontSize: 9.5,
+  recentSub: {
+    fontSize: 12,
+    fontWeight: '600',
     color: '#64748b',
-    marginBottom: 8,
+    marginTop: 1,
   },
-  taskCheckRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+  seeAllBtn: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    borderRadius: 16,
+    paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  taskItemText: {
-    fontSize: 11,
-    color: '#1e293b',
-    flex: 1,
-    lineHeight: 15,
+  seeAllBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#15803d',
   },
-  mandiItemRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 4.5,
-  },
-  mandiLeftCol: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  mandiIconDot: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mandiCropText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#1e293b',
-  },
-  mandiRightCol: {
-    alignItems: 'flex-end',
-  },
-  mandiPriceText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  mandiRateGreen: {
-    fontSize: 9.5,
-    fontWeight: '700',
-    color: '#16a34a',
-  },
-  mandiRateRed: {
-    fontSize: 9.5,
-    fontWeight: '700',
-    color: '#dc2626',
-  },
-
-  /* Two Feature Banner Cards */
-  twoCardsRow: {
-    flexDirection: 'column',
-    gap: 8,
-    marginBottom: 14,
-  },
-  bannerCardItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  bannerCardIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  bannerCardTextWrap: {
-    flex: 1,
-  },
-  bannerCardTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  bannerCardDesc: {
-    fontSize: 10.5,
-    color: '#64748b',
-    marginTop: 2,
-  },
-
-  /* Triple Service Pills */
-  tripleServicesRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-  },
-  servicePillCard: {
-    flex: 1,
-    padding: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: 'center',
-  },
-  serviceIconWrap: {
-    width: 32,
-    height: 32,
+  emptyCard: {
+    backgroundColor: '#ffffff',
     borderRadius: 16,
+    padding: 24,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 6,
   },
-  servicePillTitle: {
-    fontSize: 10.5,
-    fontWeight: '700',
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '800',
     color: '#0f172a',
-    textAlign: 'center',
-    marginBottom: 2,
+    marginTop: 8,
   },
-  servicePillDesc: {
-    fontSize: 8.5,
+  emptySub: {
+    fontSize: 13,
+    fontWeight: '600',
     color: '#64748b',
     textAlign: 'center',
-    lineHeight: 11,
+    marginTop: 4,
+    lineHeight: 18,
   },
-
-  /* Bottom Promo */
-  bottomPromoCard: {
+  activitiesStack: {
+    gap: 10,
+  },
+  activityFeedCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     backgroundColor: '#ffffff',
     borderRadius: 16,
     padding: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4 },
-      android: { elevation: 1 },
-    }),
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  promoFarmerThumb: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginRight: 10,
+  activityThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
   },
-  promoTextWrap: {
+  activityFeedContent: {
     flex: 1,
-    paddingRight: 6,
   },
-  promoHeadRow: {
+  activityTopMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
   },
-  promoTitle: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    color: '#0f172a',
+  cropTagBadge: {
+    backgroundColor: '#dcfce7',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
-  promoDesc: {
-    fontSize: 9.5,
-    color: '#64748b',
-    lineHeight: 13,
-    marginTop: 2,
+  cropTagBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#15803d',
   },
-  promoBtn: {
-    backgroundColor: '#16a34a',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-  },
-  promoBtnText: {
-    color: '#ffffff',
+  activityDateLabel: {
     fontSize: 11,
     fontWeight: '700',
+    color: '#64748b',
+  },
+  activityCardTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginTop: 2,
+  },
+  activityNotesText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  activityBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 6,
+  },
+  expenseTag: {
+    backgroundColor: '#fef3c7',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  expenseTagText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#b45309',
+  },
+  locTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  locTagText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
   },
 });

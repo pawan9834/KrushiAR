@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -7,16 +7,24 @@ import {
   TouchableOpacity,
   ImageBackground,
   Platform,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '@/context/LanguageContext';
 import { useUserLocation } from '@/context/LocationContext';
+import {
+  fetchExtendedWeatherForecast,
+  ExtendedWeatherForecast,
+  HourlyWeatherItem,
+  DailyWeatherItem,
+} from '@/services/imdWeather';
 
 export default function WeatherScreen() {
   const insets = useSafeAreaInsets();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { location, setShowLocationModal } = useUserLocation();
 
   // Active Filter Pill
@@ -28,28 +36,43 @@ export default function WeatherScreen() {
   // Selected day index
   const [selectedDay, setSelectedDay] = useState(0);
 
-  // Hourly forecast data
-  const hourlyData = [
-    { time: 'Now', temp: '32°', rain: '0%', icon: 'sunny', color: '#f59e0b' },
-    { time: '10 AM', temp: '33°', rain: '0%', icon: 'sunny', color: '#f59e0b' },
-    { time: '11 AM', temp: '34°', rain: '0%', icon: 'partly-sunny', color: '#f59e0b' },
-    { time: '12 PM', temp: '35°', rain: '0%', icon: 'sunny', color: '#f59e0b' },
-    { time: '1 PM', temp: '35°', rain: '0%', icon: 'partly-sunny', color: '#f59e0b' },
-    { time: '2 PM', temp: '34°', rain: '10%', icon: 'cloud', color: '#94a3b8' },
-    { time: '3 PM', temp: '33°', rain: '20%', icon: 'cloud', color: '#94a3b8' },
-    { time: '4 PM', temp: '32°', rain: '30%', icon: 'cloud', color: '#94a3b8' },
-  ];
+  // Live Weather Forecast State
+  const [forecast, setForecast] = useState<ExtendedWeatherForecast | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // 7-day forecast data
-  const sevenDayData = [
-    { day: 'Tue', date: '7 Oct', temp: '24° / 35°', rain: '0%', icon: 'sunny', color: '#f59e0b' },
-    { day: 'Wed', date: '8 Oct', temp: '25° / 34°', rain: '10%', icon: 'sunny', color: '#f59e0b' },
-    { day: 'Thu', date: '9 Oct', temp: '25° / 33°', rain: '20%', icon: 'partly-sunny', color: '#f59e0b' },
-    { day: 'Fri', date: '10 Oct', temp: '24° / 31°', rain: '60%', icon: 'rainy', color: '#0284c7' },
-    { day: 'Sat', date: '11 Oct', temp: '23° / 30°', rain: '70%', icon: 'rainy', color: '#0284c7' },
-    { day: 'Sun', date: '12 Oct', temp: '23° / 31°', rain: '30%', icon: 'partly-sunny', color: '#f59e0b' },
-    { day: 'Mon', date: '13 Oct', temp: '24° / 33°', rain: '10%', icon: 'sunny', color: '#f59e0b' },
-  ];
+  const loadWeather = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setIsRefreshing(true);
+    else setIsLoading(true);
+
+    try {
+      const lat = location.latitude || 21.2483;
+      const lon = location.longitude || 75.3023;
+      const district = location.district || location.city || 'Jalgaon';
+      const data = await fetchExtendedWeatherForecast(lat, lon, district, language);
+      setForecast(data);
+    } catch (err) {
+      console.warn('Failed to load weather:', err);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [location.latitude, location.longitude, location.district, location.city, language]);
+
+  useEffect(() => {
+    loadWeather();
+  }, [loadWeather]);
+
+  const hourlyData: HourlyWeatherItem[] = forecast?.hourly || [];
+  const sevenDayData: DailyWeatherItem[] = forecast?.sevenDay || [];
+  const current = forecast?.current;
+
+  const getDynamicDateStr = () => {
+    const today = new Date();
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `Today, ${today.getDate()} ${monthNames[today.getMonth()]} ${today.getFullYear()}`;
+  };
 
   const filterTabs = [
     { key: 'hourly' as const, label: t.hourlyForecast },
@@ -62,40 +85,49 @@ export default function WeatherScreen() {
   return (
     <View style={[styles.container, { backgroundColor: '#f8fafc' }]}>
       {/* 1. Header Row */}
-      <View style={[styles.headerContainer, { paddingTop: insets.top > 0 ? insets.top + 6 : 24 }]}>
-        <View style={styles.headerRow}>
-          {/* Back Button */}
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => router.back()}
-            activeOpacity={0.7}>
-            <Ionicons name="arrow-back" size={24} color="#0f172a" />
-          </TouchableOpacity>
+      <View style={[styles.headerOverlay, { paddingTop: 11 }]}>
+        <View style={styles.headerContainer}>
+          <View style={styles.headerRow}>
+            {/* Back Button */}
+            <TouchableOpacity
+              style={styles.backBtn}
+              onPress={() => router.back()}
+              activeOpacity={0.7}>
+              <Ionicons name="arrow-back" size={24} color="#0f172a" />
+            </TouchableOpacity>
 
-          {/* Title & Subtitle */}
-          <View style={styles.titleCol}>
-            <Text style={styles.screenTitle}>{t.weatherTitle}</Text>
-            <Text style={styles.screenSub}>{t.weatherScreenSub}</Text>
+            {/* Title & Subtitle */}
+            <View style={styles.titleCol}>
+              <Text style={styles.screenTitle}>{t.weatherTitle}</Text>
+              <Text style={styles.screenSub}>{t.weatherScreenSub}</Text>
+            </View>
+
+            {/* Location Chip Button */}
+            <TouchableOpacity
+              style={styles.locationChip}
+              onPress={() => setShowLocationModal(true)}
+              activeOpacity={0.8}>
+              <Ionicons name="location-sharp" size={13} color="#16a34a" />
+              <Text style={styles.locationText} numberOfLines={1}>
+                {location.displayLocation}
+              </Text>
+              <Ionicons name="chevron-down" size={11} color="#0f172a" />
+            </TouchableOpacity>
           </View>
-
-          {/* Location Chip Button */}
-          <TouchableOpacity
-            style={styles.locationChip}
-            onPress={() => setShowLocationModal(true)}
-            activeOpacity={0.8}>
-            <Ionicons name="location-sharp" size={13} color="#16a34a" />
-            <Text style={styles.locationText} numberOfLines={1}>
-              {location.displayLocation}
-            </Text>
-            <Ionicons name="chevron-down" size={11} color="#0f172a" />
-          </TouchableOpacity>
         </View>
       </View>
 
       <ScrollView
         style={styles.scrollWrap}
         contentContainerStyle={[styles.contentContainer, { paddingBottom: insets.bottom + 36 }]}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={() => loadWeather(true)}
+            colors={['#16a34a']}
+          />
+        }>
         {/* 2. Main Weather Hero Card */}
         <View style={styles.heroCardContainer}>
           <ImageBackground
@@ -105,23 +137,28 @@ export default function WeatherScreen() {
             <View style={styles.heroOverlay}>
               {/* Left Column: Temp & Conditions */}
               <View style={styles.heroLeftCol}>
-                <Text style={styles.heroDateText}>Today, 7 Oct 2026</Text>
+                <Text style={styles.heroDateText}>{getDynamicDateStr()}</Text>
 
                 <View style={styles.heroTempRow}>
-                  <Text style={styles.heroTempText}>32°C</Text>
-                  <Ionicons name="sunny" size={38} color="#facc15" style={{ marginLeft: 6 }} />
+                  <Text style={styles.heroTempText}>{current ? `${current.temperature}°C` : '32°C'}</Text>
+                  <Ionicons
+                    name={current?.conditionIcon === 'rainy' ? 'rainy' : current?.conditionIcon === 'cloudy' ? 'cloud' : 'sunny'}
+                    size={38}
+                    color="#facc15"
+                    style={{ marginLeft: 6 }}
+                  />
                 </View>
 
-                <Text style={styles.heroConditionText}>Clear Sky</Text>
+                <Text style={styles.heroConditionText}>{current?.condition || 'Clear Sky'}</Text>
 
                 <View style={styles.heroMetaRow}>
                   <Ionicons name="thermometer-outline" size={13} color="#ffffff" />
-                  <Text style={styles.heroMetaText}>Feels like 34°C</Text>
+                  <Text style={styles.heroMetaText}>Feels like {current ? `${current.temperature + 2}°C` : '34°C'}</Text>
                 </View>
 
                 <View style={styles.heroMetaRow}>
                   <Ionicons name="refresh-outline" size={13} color="#ffffff" />
-                  <Text style={styles.heroMetaText}>Updated 15 minutes ago</Text>
+                  <Text style={styles.heroMetaText}>Updated {current?.lastUpdated || 'just now'}</Text>
                 </View>
               </View>
 
@@ -130,31 +167,33 @@ export default function WeatherScreen() {
                 <View style={styles.statLine}>
                   <Ionicons name="water-outline" size={15} color="#0284c7" />
                   <Text style={styles.statLabel}>Humidity</Text>
-                  <Text style={styles.statVal}>45%</Text>
+                  <Text style={styles.statVal}>{current ? `${current.humidity}%` : '42%'}</Text>
                 </View>
 
                 <View style={styles.statLine}>
                   <Ionicons name="rainy-outline" size={15} color="#0284c7" />
                   <Text style={styles.statLabel}>Rainfall</Text>
-                  <Text style={styles.statVal}>0 mm</Text>
+                  <Text style={styles.statVal}>{current ? `${current.rainfallMm} mm` : '0 mm'}</Text>
                 </View>
 
                 <View style={styles.statLine}>
                   <MaterialCommunityIcons name="weather-windy" size={15} color="#475569" />
                   <Text style={styles.statLabel}>Wind Speed</Text>
-                  <Text style={styles.statVal}>12 km/h</Text>
+                  <Text style={styles.statVal}>{current ? `${current.windSpeed} km/h` : '10 km/h'}</Text>
                 </View>
 
                 <View style={styles.statLine}>
                   <Ionicons name="compass-outline" size={15} color="#475569" />
-                  <Text style={styles.statLabel}>Wind Direction</Text>
-                  <Text style={styles.statVal}>NE</Text>
+                  <Text style={styles.statLabel}>Pressure</Text>
+                  <Text style={styles.statVal}>{forecast?.pressureHpa ? `${forecast.pressureHpa} hPa` : '1012 hPa'}</Text>
                 </View>
 
                 <View style={styles.statLine}>
                   <Ionicons name="sunny-outline" size={15} color="#f59e0b" />
                   <Text style={styles.statLabel}>UV Index</Text>
-                  <Text style={[styles.statVal, { color: '#dc2626', fontWeight: '800' }]}>7 (High)</Text>
+                  <Text style={[styles.statVal, { color: (forecast?.uvIndex || 6) > 7 ? '#dc2626' : '#16a34a', fontWeight: '800' }]}>
+                    {forecast?.uvIndex || 6} ({(forecast?.uvIndex || 6) > 7 ? 'High' : 'Moderate'})
+                  </Text>
                 </View>
               </View>
             </View>
@@ -242,7 +281,9 @@ export default function WeatherScreen() {
                 <Ionicons name="thermometer" size={18} color="#ef4444" />
               </View>
               <Text style={styles.detailCardLabel}>Temperature</Text>
-              <Text style={styles.detailCardVal}>24° - 35°</Text>
+              <Text style={styles.detailCardVal}>
+                {current ? `${current.minTemp}° - ${current.maxTemp}°` : '24° - 35°'}
+              </Text>
               <Text style={styles.detailCardSub}>Min / Max</Text>
             </View>
 
@@ -252,8 +293,8 @@ export default function WeatherScreen() {
                 <Ionicons name="water" size={18} color="#0284c7" />
               </View>
               <Text style={styles.detailCardLabel}>Humidity</Text>
-              <Text style={styles.detailCardVal}>45%</Text>
-              <Text style={styles.detailCardSub}>Moderate</Text>
+              <Text style={styles.detailCardVal}>{current ? `${current.humidity}%` : '42%'}</Text>
+              <Text style={styles.detailCardSub}>{(current?.humidity || 42) > 60 ? 'High' : (current?.humidity || 42) > 30 ? 'Moderate' : 'Low'}</Text>
             </View>
 
             {/* Card 3: Rainfall */}
@@ -262,7 +303,7 @@ export default function WeatherScreen() {
                 <Ionicons name="rainy" size={18} color="#16a34a" />
               </View>
               <Text style={styles.detailCardLabel}>Rainfall</Text>
-              <Text style={styles.detailCardVal}>0 mm</Text>
+              <Text style={styles.detailCardVal}>{current ? `${current.rainfallMm} mm` : '0 mm'}</Text>
               <Text style={styles.detailCardSub}>Today</Text>
             </View>
 
@@ -272,8 +313,8 @@ export default function WeatherScreen() {
                 <MaterialCommunityIcons name="weather-windy" size={18} color="#9333ea" />
               </View>
               <Text style={styles.detailCardLabel}>Wind Speed</Text>
-              <Text style={styles.detailCardVal}>12 km/h</Text>
-              <Text style={styles.detailCardSub}>NE Direction</Text>
+              <Text style={styles.detailCardVal}>{current ? `${current.windSpeed} km/h` : '10 km/h'}</Text>
+              <Text style={styles.detailCardSub}>{(current?.windSpeed || 10) > 15 ? 'Breezy' : 'Calm'}</Text>
             </View>
           </View>
         </View>
@@ -386,6 +427,9 @@ export default function WeatherScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  headerOverlay: {
+    backgroundColor: '#ffffff',
   },
   headerContainer: {
     backgroundColor: '#ffffff',
