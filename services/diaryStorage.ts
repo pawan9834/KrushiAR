@@ -1,5 +1,11 @@
 // services/diaryStorage.ts
 import * as FileSystem from 'expo-file-system/legacy';
+import {
+  deleteActivityFromFirestore,
+  fetchActivitiesFromFirestore,
+  saveActivityToFirestore,
+  uploadDiaryPhoto,
+} from './firebaseDiary';
 
 export type ActivityType =
   | 'planting'
@@ -341,19 +347,30 @@ export async function addActivity(
 ): Promise<ActivityRecord> {
   const db = await getDiaryDatabase();
   const now = new Date().toISOString();
+  const activityId = `act_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
   let finalPhotoUri = record.photoUri;
   if (finalPhotoUri && !finalPhotoUri.startsWith('http')) {
     finalPhotoUri = await savePermanentPhoto(finalPhotoUri);
   }
 
+  // Upload photo to Firebase Storage if available (falls back to local uri if offline)
+  let cloudPhotoUri = finalPhotoUri;
+  if (finalPhotoUri) {
+    try {
+      cloudPhotoUri = await uploadDiaryPhoto(finalPhotoUri, activityId);
+    } catch (err) {
+      console.warn('Firebase photo upload fallback:', err);
+    }
+  }
+
   const newRecord: ActivityRecord = {
     ...record,
-    id: `act_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-    photoUri: finalPhotoUri,
+    id: activityId,
+    photoUri: cloudPhotoUri,
     createdAt: now,
     updatedAt: now,
-    isSynced: true,
+    isSynced: false,
     isDraft: false,
   };
 
@@ -368,6 +385,22 @@ export async function addActivity(
   }
 
   await saveDiaryDatabase(db);
+
+  // Save to Cloud Firestore in background/online
+  try {
+    const savedInCloud = await saveActivityToFirestore(newRecord);
+    if (savedInCloud) {
+      newRecord.isSynced = true;
+      const idx = db.activities.findIndex((a) => a.id === activityId);
+      if (idx !== -1) {
+        db.activities[idx].isSynced = true;
+        await saveDiaryDatabase(db);
+      }
+    }
+  } catch (err) {
+    console.warn('Firestore sync warning (stored offline):', err);
+  }
+
   return newRecord;
 }
 
@@ -390,6 +423,7 @@ export async function updateActivity(
     id: oldRecord.id,
     createdAt: oldRecord.createdAt, // preserve original timestamp
     updatedAt: new Date().toISOString(),
+    isSynced: false,
   };
 
   db.activities[index] = updated;
@@ -404,6 +438,19 @@ export async function updateActivity(
   }
 
   await saveDiaryDatabase(db);
+
+  // Update in Cloud Firestore
+  try {
+    const saved = await saveActivityToFirestore(updated);
+    if (saved) {
+      updated.isSynced = true;
+      db.activities[index].isSynced = true;
+      await saveDiaryDatabase(db);
+    }
+  } catch (err) {
+    console.warn('Firestore update warning:', err);
+  }
+
   return updated;
 }
 
@@ -423,7 +470,54 @@ export async function deleteActivity(id: string): Promise<boolean> {
   }
 
   await saveDiaryDatabase(db);
+
+  // Also delete from Cloud Firestore
+  try {
+    await deleteActivityFromFirestore(id);
+  } catch (err) {
+    console.warn('Firestore delete warning:', err);
+  }
+
   return true;
+}
+
+/**
+ * Synchronizes local activities with Cloud Firestore (bidirectional)
+ */
+export async function syncActivitiesWithCloud(): Promise<ActivityRecord[]> {
+  try {
+    const db = await getDiaryDatabase();
+    const cloudActivities = await fetchActivitiesFromFirestore();
+
+    if (cloudActivities && cloudActivities.length > 0) {
+      const localMap = new Map(db.activities.map((a) => [a.id, a]));
+      for (const cAct of cloudActivities) {
+        localMap.set(cAct.id, cAct);
+      }
+      db.activities = Array.from(localMap.values()).sort(
+        (a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()
+      );
+      await saveDiaryDatabase(db);
+    }
+
+    // Push unsynced local activities to Cloud Firestore
+    const unsynced = db.activities.filter((a) => !a.isSynced);
+    for (const unsyncedAct of unsynced) {
+      const success = await saveActivityToFirestore(unsyncedAct);
+      if (success) {
+        unsyncedAct.isSynced = true;
+      }
+    }
+    if (unsynced.length > 0) {
+      await saveDiaryDatabase(db);
+    }
+
+    return db.activities;
+  } catch (err) {
+    console.warn('Cloud sync error:', err);
+    const db = await getDiaryDatabase();
+    return db.activities;
+  }
 }
 
 // Crops

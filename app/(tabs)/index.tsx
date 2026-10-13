@@ -8,6 +8,7 @@ import {
   getCrops,
   getExpenseSummary,
   getFarmerProfile,
+  syncActivitiesWithCloud,
 } from '@/services/diaryStorage';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
@@ -69,6 +70,7 @@ export default function HomeScreen() {
 
   const onRefresh = async () => {
     setIsRefreshing(true);
+    await syncActivitiesWithCloud().catch(() => {});
     await loadDiaryData();
     setIsRefreshing(false);
   };

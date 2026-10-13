@@ -219,6 +219,12 @@ export default function ActivityDetailScreen() {
               <Ionicons name="calendar-outline" size={13} color="#64748b" />
               <Text style={styles.cropMetaText}>{displayDate}</Text>
             </View>
+            {record?.isSynced ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                <Ionicons name="cloud-done-outline" size={13} color="#15803d" style={{ marginRight: 4 }} />
+                <Text style={{ fontSize: 11, color: '#15803d', fontWeight: '600' }}>क्लाउडवर सुरक्षित (Cloud Synced)</Text>
+              </View>
+            ) : null}
             <View style={styles.cropMetaRow}>
               <Ionicons name="location-sharp" size={13} color="#15803d" />
               <Text style={styles.cropMetaText}>{displayLocation}</Text>
@@ -336,6 +342,17 @@ export default function ActivityDetailScreen() {
 
           <Text style={styles.transcriptQuoteText}>"{displayTranscript}"</Text>
         </View>
+
+        {/* शेतकरी टिपा (Notes) */}
+        {record?.notes ? (
+          <View style={styles.sectionCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+              <Ionicons name="document-text-outline" size={18} color="#15803d" style={{ marginRight: 6 }} />
+              <Text style={styles.sectionCardTitle}>शेतकरी टिपा (Notes)</Text>
+            </View>
+            <Text style={{ fontSize: 14, color: '#334155', lineHeight: 22 }}>{record.notes}</Text>
+          </View>
+        ) : null}
 
         {/* 6. ठिकाण (Location Map Card) */}
         <View style={styles.sectionCard}>

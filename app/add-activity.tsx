@@ -13,6 +13,7 @@ import {
   savePermanentPhoto,
   StructuredAnswer
 } from '@/services/diaryStorage';
+import { getCurrentUserId } from '@/services/firebaseDiary';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
@@ -356,7 +357,7 @@ export default function AddActivityScreen() {
       }
 
       await addActivity({
-        userId: 'farmer_01',
+        userId: getCurrentUserId(),
         cropId: selectedCrop?.id,
         cropName: detectedCropName || selectedCrop?.name || 'शेती पीक',
         plotId: selectedCrop?.plotId,
