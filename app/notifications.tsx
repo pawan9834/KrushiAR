@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -13,6 +13,8 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '@/context/LanguageContext';
+import { useUserLocation } from '@/context/LocationContext';
+import { getCrops, getActivities } from '@/services/diaryStorage';
 
 export type NotificationCategory = 'all' | 'tasks' | 'crops' | 'weather' | 'market' | 'system';
 
@@ -36,140 +38,92 @@ interface NotificationItem {
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useLanguage();
+  const { location } = useUserLocation();
 
   const [activeFilter, setActiveFilter] = useState<NotificationCategory>('all');
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
-  const [notifications, setNotifications] = useState<NotificationItem[]>([
-    // Today
-    {
-      id: 'notif-1',
-      category: 'tasks',
-      title: 'Task Reminder',
-      description: 'Check soil moisture for Soybean (Plot 1) at 09:00 AM.',
-      timeText: '1 hour ago',
-      section: 'today',
-      isUnread: true,
-      iconName: 'checkmark-circle',
-      iconType: 'ionicons',
-      iconColor: '#16a34a',
-      iconBg: '#dcfce7',
-      route: '/tasks',
-    },
-    {
-      id: 'notif-2',
-      category: 'weather',
-      title: 'Weather Alert',
-      description: 'High temperature (32°C) expected in Chopda today. Consider adjusting irrigation schedule.',
-      timeText: '2 hours ago',
-      section: 'today',
-      isUnread: true,
-      iconName: 'sunny',
-      iconType: 'ionicons',
-      iconColor: '#f59e0b',
-      iconBg: '#fef3c7',
-    },
-    {
-      id: 'notif-3',
-      category: 'crops',
-      title: 'Pest Alert',
-      description: 'Higher risk of leaf miner detected in Maize crops. Check your field and take preventive measures.',
-      timeText: '4 hours ago',
-      section: 'today',
-      isUnread: true,
-      iconName: 'bug',
-      iconType: 'ionicons',
-      iconColor: '#ef4444',
-      iconBg: '#fee2e2',
-      imageUri: 'https://images.unsplash.com/photo-1533038590840-1cde6e668a91?w=200&q=80',
-      isWarning: true,
-      route: '/crop-details',
-    },
-    {
-      id: 'notif-4',
-      category: 'market',
-      title: 'Market Price Update',
-      description: 'Soybean price increased by 2%. Current price: ₹4,850 / Qtl',
-      timeText: '6 hours ago',
-      section: 'today',
-      isUnread: true,
-      iconName: 'chart-line',
-      iconType: 'mci',
-      iconColor: '#7c3aed',
-      iconBg: '#ede9fe',
-      imageUri: 'https://images.unsplash.com/photo-1599940824399-b87987ceb72a?w=200&q=80',
-      route: '/(tabs)/market',
-    },
-    // Yesterday
-    {
-      id: 'notif-5',
-      category: 'tasks',
-      title: 'Irrigation Completed',
-      description: 'Irrigation for Maize (Plot 2) completed successfully.',
-      timeText: 'Yesterday, 3:00 PM',
-      section: 'yesterday',
-      isUnread: false,
-      iconName: 'water',
-      iconType: 'ionicons',
-      iconColor: '#0284c7',
-      iconBg: '#e0f2fe',
-      route: '/tasks',
-    },
-    {
-      id: 'notif-6',
-      category: 'crops',
-      title: 'Crop Update',
-      description: 'Soybean in Plot 1 has entered flowering stage.',
-      timeText: 'Yesterday, 11:20 AM',
-      section: 'yesterday',
-      isUnread: false,
-      iconName: 'sprout',
-      iconType: 'mci',
-      iconColor: '#16a34a',
-      iconBg: '#dcfce7',
-      imageUri: 'https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?w=200&q=80',
-      route: '/crop-details',
-    },
-    {
-      id: 'notif-7',
-      category: 'system',
-      title: 'Advisory',
-      description: 'Apply foliar spray for micronutrients in Cotton within next 3 days for better yield.',
-      timeText: 'Yesterday, 9:00 AM',
-      section: 'yesterday',
-      isUnread: false,
-      iconName: 'notifications',
-      iconType: 'ionicons',
-      iconColor: '#f59e0b',
-      iconBg: '#fef3c7',
-    },
-    // This Week
-    {
-      id: 'notif-8',
-      category: 'system',
-      title: 'Report Ready',
-      description: 'Your monthly farm activity report for September 2026 is ready to view.',
-      timeText: '5 Oct 2026',
-      section: 'thisWeek',
-      isUnread: false,
-      iconName: 'file-document-outline',
-      iconType: 'mci',
-      iconColor: '#16a34a',
-      iconBg: '#dcfce7',
-    },
-    {
-      id: 'notif-9',
-      category: 'system',
-      title: 'Expense Alert',
-      description: 'You have crossed 70% of your monthly budget. Current expenses: ₹12,450',
-      timeText: '4 Oct 2026',
-      section: 'thisWeek',
-      isUnread: false,
-      iconName: 'currency-inr',
-      iconType: 'mci',
-      iconColor: '#dc2626',
-      iconBg: '#fee2e2',
-    },
-  ]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const [crops, acts] = await Promise.all([getCrops(), getActivities()]);
+        const dynamicList: NotificationItem[] = [];
+
+        // 1. Weather Notification
+        dynamicList.push({
+          id: 'notif-wx',
+          category: 'weather',
+          title: 'Weather Advisory',
+          description: `Current forecast for ${location.displayLocation}: Check weather conditions before spraying or irrigation.`,
+          timeText: 'Just now',
+          section: 'today',
+          isUnread: true,
+          iconName: 'sunny',
+          iconType: 'ionicons',
+          iconColor: '#f59e0b',
+          iconBg: '#fef3c7',
+          route: '/weather',
+        });
+
+        // 2. Crop Notifications from active crops
+        crops.forEach((c, idx) => {
+          dynamicList.push({
+            id: `notif-crop-${c.id}`,
+            category: 'crops',
+            title: `${c.name} Advisory`,
+            description: `Field inspection recommended for ${c.name} (${c.plotName || 'Plot'}). Monitor soil moisture and pest symptoms.`,
+            timeText: `${idx + 1} hr ago`,
+            section: 'today',
+            isUnread: idx === 0,
+            iconName: 'sprout',
+            iconType: 'mci',
+            iconColor: '#16a34a',
+            iconBg: '#dcfce7',
+            imageUri: c.imageUrl,
+            route: '/(tabs)/farm',
+          });
+        });
+
+        // 3. Diary Activity Notification
+        if (acts.length > 0) {
+          dynamicList.push({
+            id: 'notif-act-last',
+            category: 'tasks',
+            title: 'Recent Activity Recorded',
+            description: `${acts[0].activityTitle} for ${acts[0].cropName} was saved to your farming diary.`,
+            timeText: 'Recent',
+            section: 'today',
+            isUnread: false,
+            iconName: 'checkmark-circle',
+            iconType: 'ionicons',
+            iconColor: '#16a34a',
+            iconBg: '#dcfce7',
+            route: '/(tabs)/market',
+          });
+        }
+
+        // 4. Market Price Notification
+        dynamicList.push({
+          id: 'notif-mkt',
+          category: 'market',
+          title: 'Mandi Price Updates',
+          description: `Live commodity rates available for ${location.district || location.city || 'District'} APMC markets.`,
+          timeText: 'Today',
+          section: 'today',
+          isUnread: true,
+          iconName: 'chart-line',
+          iconType: 'mci',
+          iconColor: '#7c3aed',
+          iconBg: '#ede9fe',
+          route: '/(tabs)/market',
+        });
+
+        setNotifications(dynamicList);
+      } catch (err) {
+        console.warn('Failed to load notifications:', err);
+      }
+    })();
+  }, [location.displayLocation, location.district, location.city]);
 
   const categories = [
     { key: 'all' as NotificationCategory, label: t.filterAll, icon: 'layers-outline' as const, isMCI: false },
@@ -217,8 +171,9 @@ export default function NotificationsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: '#f8fafc' }]}>
       {/* 1. Header */}
-      <View style={[styles.headerContainer, { paddingTop: insets.top > 0 ? insets.top + 6 : 24 }]}>
-        <View style={styles.headerRow}>
+      <View style={[styles.headerOverlay, { paddingTop: 11 }]}>
+        <View style={styles.headerContainer}>
+          <View style={styles.headerRow}>
           {/* Back Button */}
           <TouchableOpacity
             style={styles.backBtn}
@@ -283,6 +238,7 @@ export default function NotificationsScreen() {
             );
           })}
         </ScrollView>
+      </View>
       </View>
 
       {/* 3. Notifications List */}
@@ -437,6 +393,9 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  headerOverlay: {
+    backgroundColor: '#ffffff',
   },
   headerContainer: {
     backgroundColor: '#ffffff',

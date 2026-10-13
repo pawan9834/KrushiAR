@@ -12,7 +12,7 @@ export {
 } from 'expo-router';
 
 export const unstable_settings = {
-  initialRouteName: '(tabs)',
+  initialRouteName: 'index',
 };
 
 SplashScreen.preventAutoHideAsync();
@@ -72,9 +72,13 @@ function RootLayoutNav() {
       />
       <StatusBar style="light" />
       <Stack>
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="personal-info" options={{ headerShown: false }} />
+        <Stack.Screen name="add-activity" options={{ headerShown: false }} />
+        <Stack.Screen name="activity-detail" options={{ headerShown: false }} />
         <Stack.Screen name="crop-details" options={{ headerShown: false }} />
+        <Stack.Screen name="personal-info" options={{ headerShown: false }} />
         <Stack.Screen name="tasks" options={{ headerShown: false }} />
         <Stack.Screen name="notifications" options={{ headerShown: false }} />
         <Stack.Screen name="weather" options={{ headerShown: false }} />

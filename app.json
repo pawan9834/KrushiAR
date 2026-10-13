@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "KrushiAR",
-    "slug": "KrushiAR",
+    "name": "AI Farming Diary",
+    "slug": "ai-farming-diary",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -10,14 +10,18 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "KrushiAR requires location access to provide accurate local weather, mandi prices, and crop recommendations."
+        "NSLocationWhenInUseUsageDescription": "AI Farming Diary requires location access to record geotagged farm activities.",
+        "NSMicrophoneUsageDescription": "AI Farming Diary requires microphone access to record farming activities and ask questions in natural Marathi voice."
       }
     },
     "android": {
       "package": "com.pawan.krushiar",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "CAMERA",
+        "RECORD_AUDIO"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -45,9 +49,31 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "KrushiAR requires location access to provide accurate local weather, mandi prices, and crop recommendations."
+          "locationWhenInUsePermission": "AI Farming Diary requires location access to geotag farm activity records."
         }
-      ]
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "AI Farming Diary needs camera access to capture photographs of crops and farm activities."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "AI Farming Diary needs photo access to select crop photographs for your farming diary."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "AI Farming Diary requires microphone access to record farming activities and ask questions in natural Marathi voice.",
+          "recordAudioAndroid": true
+        }
+      ],
+      "expo-asset",
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth"
     ],
     "experiments": {
       "typedRoutes": true

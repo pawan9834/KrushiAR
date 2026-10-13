@@ -1,21 +1,30 @@
-import React, { useState } from 'react';
+import { useColorScheme } from '@/components/useColorScheme';
+import Colors from '@/constants/Colors';
+import { useLanguage } from '@/context/LanguageContext';
+import { useUserLocation } from '@/context/LocationContext';
 import {
-  StyleSheet,
-  Text,
-  View,
-  ScrollView,
-  TouchableOpacity,
+  FarmerProfile,
+  Crop,
+  ActivityRecord,
+  getFarmerProfile,
+  getCrops,
+  getActivities,
+  setOnboardingComplete,
+} from '@/services/diaryStorage';
+import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import {
+  Alert,
   Image,
   ImageBackground,
   Platform,
-  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import Colors from '@/constants/Colors';
-import { useColorScheme } from '@/components/useColorScheme';
-import { useLanguage } from '@/context/LanguageContext';
-import { useUserLocation } from '@/context/LocationContext';
 
 export default function ProfileScreen() {
   const colorScheme = useColorScheme();
@@ -25,13 +34,36 @@ export default function ProfileScreen() {
   const { language, setLanguage, t } = useLanguage();
   const { location, setShowLocationModal } = useUserLocation();
 
+  const [farmerProfile, setFarmerProfile] = useState<FarmerProfile | null>(null);
+  const [crops, setCrops] = useState<Crop[]>([]);
+  const [activities, setActivities] = useState<ActivityRecord[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      Promise.all([getFarmerProfile(), getCrops(), getActivities()])
+        .then(([profile, cropList, actList]) => {
+          setFarmerProfile(profile);
+          setCrops(cropList);
+          setActivities(actList);
+        })
+        .catch((err) => console.warn('Failed to load profile settings:', err));
+    }, [])
+  );
+
   const handleLogout = () => {
     Alert.alert(
       t.logoutAlertTitle,
       t.logoutAlertMsg,
       [
         { text: t.cancel, style: 'cancel' },
-        { text: t.logout, style: 'destructive', onPress: () => console.log('Logged out') },
+        {
+          text: t.logout,
+          style: 'destructive',
+          onPress: async () => {
+            await setOnboardingComplete(false);
+            router.replace('/login');
+          },
+        },
       ]
     );
   };
@@ -101,27 +133,29 @@ export default function ProfileScreen() {
 
           {/* Profile Details */}
           <View style={styles.profileTextCol}>
-            <Text style={styles.farmerName}>Pawankumar Patil</Text>
+            <Text style={styles.farmerName}>{farmerProfile?.name || 'पवन पाटील'}</Text>
 
             <View style={styles.detailRow}>
               <Ionicons name="call" size={12} color="#64748b" />
-              <Text style={styles.detailText}>+91 98765 43210</Text>
+              <Text style={styles.detailText}>+91 {farmerProfile?.phone || '९८२२१२३४५६'}</Text>
               <Ionicons name="checkmark-circle" size={13} color="#16a34a" style={{ marginLeft: 2 }} />
             </View>
 
             <View style={styles.detailRow}>
               <Ionicons name="mail" size={12} color="#64748b" />
-              <Text style={styles.detailText} numberOfLines={1}>pawanpatil@gmail.com</Text>
+              <Text style={styles.detailText} numberOfLines={1}>{farmerProfile?.name ? `${farmerProfile.name.toLowerCase().replace(/\s+/g, '')}@gmail.com` : 'farmer@krushiar.in'}</Text>
             </View>
 
             <View style={styles.detailRow}>
               <Ionicons name="location-sharp" size={12} color="#64748b" />
-              <Text style={styles.detailText} numberOfLines={1}>{location.displayLocation}, {location.state}</Text>
+              <Text style={styles.detailText} numberOfLines={1}>
+                {farmerProfile?.village || location.displayLocation}, {farmerProfile?.district || location.state}
+              </Text>
             </View>
           </View>
 
           {/* Edit Profile Button */}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.editProfileBtn}
             onPress={() => router.push('/personal-info')}>
             <Feather name="edit-2" size={12} color="#16a34a" />
@@ -139,7 +173,7 @@ export default function ProfileScreen() {
           <View style={[styles.metricIconWrap, { backgroundColor: '#dcfce7' }]}>
             <MaterialCommunityIcons name="sprout" size={18} color="#16a34a" />
           </View>
-          <Text style={styles.metricNum}>4</Text>
+          <Text style={styles.metricNum}>{crops.length}</Text>
           <View style={styles.metricLabelRow}>
             <Text style={styles.metricLabel}>{t.crops}</Text>
             <Ionicons name="chevron-forward" size={11} color="#16a34a" />
@@ -153,23 +187,23 @@ export default function ProfileScreen() {
           <View style={[styles.metricIconWrap, { backgroundColor: '#dcfce7' }]}>
             <MaterialCommunityIcons name="image-filter-hdr" size={18} color="#16a34a" />
           </View>
-          <Text style={styles.metricNum}>5.5</Text>
+          <Text style={styles.metricNum}>{farmerProfile?.totalArea || '5.5'}</Text>
           <View style={styles.metricLabelRow}>
             <Text style={styles.metricLabel}>{t.acres}</Text>
             <Ionicons name="chevron-forward" size={11} color="#16a34a" />
           </View>
         </TouchableOpacity>
 
-        {/* Pending Tasks */}
+        {/* Total Records / Activities */}
         <TouchableOpacity
           style={styles.metricCard}
-          onPress={() => router.push('/tasks')}>
+          onPress={() => router.push('/(tabs)/market')}>
           <View style={[styles.metricIconWrap, { backgroundColor: '#dcfce7' }]}>
             <MaterialCommunityIcons name="clipboard-check-outline" size={18} color="#16a34a" />
           </View>
-          <Text style={styles.metricNum}>8</Text>
+          <Text style={styles.metricNum}>{activities.length}</Text>
           <View style={styles.metricLabelRow}>
-            <Text style={styles.metricLabel} numberOfLines={1}>{t.pendingTasks}</Text>
+            <Text style={styles.metricLabel} numberOfLines={1}>{language === 'mr' ? 'नोंदी' : language === 'hi' ? 'रिकॉर्ड' : 'Records'}</Text>
             <Ionicons name="chevron-forward" size={11} color="#16a34a" />
           </View>
         </TouchableOpacity>
@@ -239,7 +273,7 @@ export default function ProfileScreen() {
       <Text style={styles.sectionTitle}>{t.accountSettings}</Text>
       <View style={styles.groupedCard}>
         {/* Personal Information */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.groupItemRow}
           onPress={() => router.push('/personal-info')}>
           <View style={[styles.groupIconWrap, { backgroundColor: '#f3e8ff' }]}>

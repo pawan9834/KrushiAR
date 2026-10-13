@@ -38,8 +38,34 @@ export default function FarmTasksScreen() {
   // Active Filter: all | pending | completed
   const [activeFilter, setActiveFilter] = useState<'all' | 'pending' | 'completed'>('all');
 
+  // Weekly Date Strip items computed dynamically from today's real date
+  const getDynamicWeekDays = () => {
+    const today = new Date();
+    const currentDayOfWeek = today.getDay(); // 0 is Sunday
+    const mondayOffset = currentDayOfWeek === 0 ? -6 : 1 - currentDayOfWeek;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + mondayOffset);
+
+    const dayLabels = [t.dayMon, t.dayTue, t.dayWed, t.dayThu, t.dayFri, t.daySat, t.daySun];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      return {
+        dayName: dayLabels[i] || 'Day',
+        dayNum: d.getDate().toString(),
+        month: monthNames[d.getMonth()] || t.monthOct,
+        isToday: d.toDateString() === today.toDateString(),
+      };
+    });
+  };
+
+  const weekDays = getDynamicWeekDays();
+  const todayIdx = weekDays.findIndex((w) => w.isToday);
+
   // Selected Day in horizontal strip (1-7)
-  const [selectedDayIndex, setSelectedDayIndex] = useState(1); // Tue 7 Oct is index 1
+  const [selectedDayIndex, setSelectedDayIndex] = useState(todayIdx >= 0 ? todayIdx : 0);
 
   // Language Modal state
   const [showLanguageModal, setShowLanguageModal] = useState(false);
@@ -48,17 +74,6 @@ export default function FarmTasksScreen() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskCrop, setNewTaskCrop] = useState('');
-
-  // Weekly Date Strip items
-  const weekDays = [
-    { dayName: t.dayMon, dayNum: '6', month: t.monthOct },
-    { dayName: t.dayTue, dayNum: '7', month: t.monthOct },
-    { dayName: t.dayWed, dayNum: '8', month: t.monthOct },
-    { dayName: t.dayThu, dayNum: '9', month: t.monthOct },
-    { dayName: t.dayFri, dayNum: '10', month: t.monthOct },
-    { dayName: t.daySat, dayNum: '11', month: t.monthOct },
-    { dayName: t.daySun, dayNum: '12', month: t.monthOct },
-  ];
 
   // Tasks state
   const [tasks, setTasks] = useState<FarmTaskItem[]>([
@@ -251,8 +266,8 @@ export default function FarmTasksScreen() {
           source={{ uri: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800&q=80' }}
           style={styles.headerBg}
           resizeMode="cover">
-          <View style={styles.headerOverlay}>
-            <View style={[styles.headerContentRow, { paddingTop: insets.top > 0 ? insets.top + 6 : 26 }]}>
+          <View style={[styles.headerOverlay, { paddingTop: 11 }]}>
+            <View style={styles.headerContentRow}>
               {/* Back Button */}
               <TouchableOpacity
                 style={styles.backBtn}

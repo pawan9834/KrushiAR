@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -11,16 +11,35 @@ import {
   Modal,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 import { useLanguage, Language } from '@/context/LanguageContext';
 import { useUserLocation } from '@/context/LocationContext';
+import { getCrops, getCropById, Crop } from '@/services/diaryStorage';
 
 export default function CropDetailsScreen() {
   const insets = useSafeAreaInsets();
   const { language, setLanguage, t } = useLanguage();
   const { location, setShowLocationModal } = useUserLocation();
+  const params = useLocalSearchParams<{ cropId?: string }>();
+
+  // Dynamic Crop State
+  const [currentCrop, setCurrentCrop] = useState<Crop | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      if (params.cropId) {
+        const found = await getCropById(params.cropId);
+        if (found) {
+          setCurrentCrop(found);
+          return;
+        }
+      }
+      const all = await getCrops();
+      if (all.length > 0) setCurrentCrop(all[0]);
+    })();
+  }, [params.cropId]);
 
   // Active sub-tab
   const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'expenses' | 'yield' | 'photos' | 'advisory'>('overview');
@@ -87,8 +106,8 @@ export default function CropDetailsScreen() {
           source={{ uri: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800&q=80' }}
           style={styles.headerBg}
           resizeMode="cover">
-          <View style={styles.headerOverlay}>
-            <View style={[styles.headerContentRow, { paddingTop: insets.top > 0 ? insets.top + 6 : 26 }]}>
+          <View style={[styles.headerOverlay, { paddingTop: 11 }]}>
+            <View style={styles.headerContentRow}>
               {/* Back Button */}
               <TouchableOpacity
                 style={styles.backBtn}
@@ -134,14 +153,14 @@ export default function CropDetailsScreen() {
         <View style={styles.cropSummaryCard}>
           {/* Crop Thumbnail */}
           <Image
-            source={{ uri: 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=300&q=80' }}
+            source={{ uri: currentCrop?.imageUrl || 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=300&q=80' }}
             style={styles.cropThumb}
           />
 
           {/* Middle Info */}
           <View style={styles.cropInfoCol}>
-            <Text style={styles.cropName}>{t.cropSoybean}</Text>
-            <Text style={styles.cropVariety}>{t.varietyLabel}: {t.varietyJs335}</Text>
+            <Text style={styles.cropName}>{currentCrop?.name || t.cropSoybean}</Text>
+            <Text style={styles.cropVariety}>{t.varietyLabel}: {currentCrop?.variety || t.varietyJs335}</Text>
 
             {/* Stage Badge */}
             <View style={styles.stageBadge}>
@@ -151,7 +170,7 @@ export default function CropDetailsScreen() {
           </View>
 
           {/* Edit Crop Button */}
-          <TouchableOpacity style={styles.editCropBtn} activeOpacity={0.8}>
+          <TouchableOpacity style={styles.editCropBtn} activeOpacity={0.8} onPress={() => router.push('/(tabs)/farm')}>
             <Feather name="edit-2" size={13} color="#16a34a" />
             <Text style={styles.editCropText}>{t.editCrop}</Text>
           </TouchableOpacity>
@@ -165,7 +184,7 @@ export default function CropDetailsScreen() {
               <MaterialCommunityIcons name="vector-square" size={16} color="#16a34a" />
             </View>
             <Text style={styles.metricLabel}>{t.plotArea}</Text>
-            <Text style={styles.metricVal}>{t.plotAreaVal}</Text>
+            <Text style={styles.metricVal}>{currentCrop ? `${currentCrop.area} ${currentCrop.areaUnit}` : t.plotAreaVal}</Text>
           </View>
 
           {/* Sowing Date */}
@@ -174,7 +193,7 @@ export default function CropDetailsScreen() {
               <Ionicons name="calendar-outline" size={16} color="#7c3aed" />
             </View>
             <Text style={styles.metricLabel}>{t.sowingDateLabel}</Text>
-            <Text style={styles.metricVal}>{t.sowingDateVal}</Text>
+            <Text style={styles.metricVal}>{currentCrop?.sowingDate || t.sowingDateVal}</Text>
           </View>
 
           {/* Expected Harvest */}
@@ -183,7 +202,7 @@ export default function CropDetailsScreen() {
               <MaterialCommunityIcons name="sprout" size={16} color="#16a34a" />
             </View>
             <Text style={styles.metricLabel}>{t.expectedHarvest}</Text>
-            <Text style={styles.metricVal}>{t.expectedHarvestVal}</Text>
+            <Text style={styles.metricVal}>{currentCrop?.expectedHarvestDate || t.expectedHarvestVal}</Text>
           </View>
 
           {/* Days Left */}
@@ -192,7 +211,9 @@ export default function CropDetailsScreen() {
               <MaterialCommunityIcons name="calendar-clock" size={16} color="#059669" />
             </View>
             <Text style={styles.metricLabel}>{t.daysLeft}</Text>
-            <Text style={[styles.metricVal, { color: '#059669' }]}>{t.daysLeftVal}</Text>
+            <Text style={[styles.metricVal, { color: '#059669' }]}>
+              {language === 'mr' ? 'सक्रिय पीक' : language === 'hi' ? 'सक्रिय फसल' : 'Active'}
+            </Text>
           </View>
         </View>
 
