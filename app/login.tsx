@@ -1,5 +1,5 @@
 import { Language, useLanguage } from '@/context/LanguageContext';
-import { setOnboardingComplete, updateFarmerProfile } from '@/services/diaryStorage';
+import { isOnboardingComplete, setOnboardingComplete, updateFarmerProfile } from '@/services/diaryStorage';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   getAuth,
@@ -276,6 +276,21 @@ export default function LoginScreen() {
   // Firebase Phone Auth confirmation state
   const [confirmResult, setConfirmResult] = useState<ConfirmationResult | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
+
+  // Check existing session on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const onboarded = await isOnboardingComplete();
+        const auth = getAuth();
+        if (auth.currentUser || onboarded) {
+          router.replace('/(tabs)');
+        }
+      } catch (err) {
+        console.warn('Login session check warning:', err);
+      }
+    })();
+  }, []);
 
   // Check existing permissions when entering step 5
   useEffect(() => {

@@ -11,6 +11,7 @@ import {
   getActivities,
   setOnboardingComplete,
 } from '@/services/diaryStorage';
+import { getAuth } from '@react-native-firebase/auth';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -60,6 +61,12 @@ export default function ProfileScreen() {
           text: t.logout,
           style: 'destructive',
           onPress: async () => {
+            try {
+              const auth = getAuth();
+              await auth.signOut();
+            } catch (err) {
+              console.warn('Firebase signout warning:', err);
+            }
             await setOnboardingComplete(false);
             router.replace('/login');
           },
