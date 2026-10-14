@@ -4,6 +4,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   getFirestore,
   orderBy,
@@ -11,7 +12,7 @@ import {
   setDoc,
 } from '@react-native-firebase/firestore';
 import { getDownloadURL, getStorage, putFile, ref } from '@react-native-firebase/storage';
-import { ActivityRecord } from './diaryStorage';
+import { ActivityRecord, FarmerProfile } from './diaryStorage';
 
 /**
  * Returns current authenticated user ID or fallback
@@ -144,5 +145,103 @@ export async function deleteActivityFromFirestore(id: string, userId?: string): 
   } catch (err: any) {
     console.warn('Firestore deleteActivity warning:', err?.message || err);
     return false;
+  }
+}
+
+/**
+ * Uploads farmer avatar image to Firebase Storage
+ */
+export async function uploadFarmerAvatar(localUri: string, userId: string): Promise<string> {
+  if (!localUri || localUri.startsWith('http')) {
+    return localUri;
+  }
+
+  try {
+    const storage = getStorage();
+    const cleanPath = localUri.startsWith('file://') ? localUri.replace('file://', '') : localUri;
+    const storageFileName = `farmers/${userId}/profile/avatar_${Date.now()}.jpg`;
+    const storageRef = ref(storage, storageFileName);
+
+    console.log('Uploading farmer avatar to Firebase Storage:', storageFileName);
+    await putFile(storageRef, cleanPath);
+    const downloadUrl = await getDownloadURL(storageRef);
+    console.log('Farmer avatar upload successful:', downloadUrl);
+    return downloadUrl;
+  } catch (err: any) {
+    console.warn('Firebase avatar upload warning (fallback to local):', err?.message || err);
+    return localUri;
+  }
+}
+
+/**
+ * Saves Farmer Profile details into Cloud Firestore under farmers/{userId}
+ */
+export async function saveFarmerProfileToFirestore(profile: FarmerProfile): Promise<boolean> {
+  try {
+    const userId = getCurrentUserId();
+    const firestore = getFirestore();
+    const farmerDocRef = doc(collection(firestore, 'farmers'), userId);
+
+    let avatarCloudUrl = profile.avatarUri || null;
+    if (avatarCloudUrl && !avatarCloudUrl.startsWith('http')) {
+      avatarCloudUrl = await uploadFarmerAvatar(avatarCloudUrl, userId);
+    }
+
+    const profileData: Record<string, any> = {
+      id: profile.id || userId,
+      userId: userId,
+      name: profile.name || '',
+      phone: profile.phone || '',
+      village: profile.village || '',
+      district: profile.district || 'जळगाव',
+      state: profile.state || 'महाराष्ट्र',
+      totalArea: profile.totalArea || '',
+      areaUnit: profile.areaUnit || 'एकर',
+      preferredLanguage: profile.preferredLanguage || 'mr',
+      avatarUri: avatarCloudUrl,
+      updatedAt: new Date().toISOString(),
+      createdDate: profile.createdDate || new Date().toISOString(),
+    };
+
+    await setDoc(farmerDocRef, profileData, { merge: true });
+    console.log('Farmer profile successfully saved to Cloud Firestore for user:', userId);
+    return true;
+  } catch (err: any) {
+    console.warn('Firestore saveFarmerProfile warning:', err?.message || err);
+    return false;
+  }
+}
+
+/**
+ * Fetches Farmer Profile details from Cloud Firestore
+ */
+export async function fetchFarmerProfileFromFirestore(userId?: string): Promise<FarmerProfile | null> {
+  try {
+    const uid = userId || getCurrentUserId();
+    const firestore = getFirestore();
+    const farmerDocRef = doc(collection(firestore, 'farmers'), uid);
+    const docSnap = await getDoc(farmerDocRef);
+
+    if (docSnap.exists()) {
+      const data = docSnap.data() as any;
+      console.log('Fetched farmer profile from Cloud Firestore for user:', uid);
+      return {
+        id: data.id || uid,
+        name: data.name || '',
+        phone: data.phone || '',
+        village: data.village || '',
+        district: data.district || '',
+        state: data.state || '',
+        totalArea: data.totalArea || '',
+        areaUnit: data.areaUnit || 'एकर',
+        preferredLanguage: data.preferredLanguage || 'mr',
+        avatarUri: data.avatarUri || undefined,
+        createdDate: data.createdDate || new Date().toISOString(),
+      };
+    }
+    return null;
+  } catch (err: any) {
+    console.warn('Firestore fetchFarmerProfile warning:', err?.message || err);
+    return null;
   }
 }

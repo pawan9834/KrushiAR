@@ -3,7 +3,9 @@ import * as FileSystem from 'expo-file-system/legacy';
 import {
   deleteActivityFromFirestore,
   fetchActivitiesFromFirestore,
+  fetchFarmerProfileFromFirestore,
   saveActivityToFirestore,
+  saveFarmerProfileToFirestore,
   uploadDiaryPhoto,
 } from './firebaseDiary';
 
@@ -578,6 +580,17 @@ export async function addPlot(plotData: Omit<FarmPlot, 'id'>): Promise<FarmPlot>
 // Farmer Profile
 export async function getFarmerProfile(): Promise<FarmerProfile> {
   const db = await getDiaryDatabase();
+  // If local profile has default seed name, attempt to restore from Cloud Firestore
+  if (!db.farmer?.phone || db.farmer.name === 'पवन पाटील') {
+    try {
+      const cloudProfile = await fetchFarmerProfileFromFirestore();
+      if (cloudProfile && cloudProfile.name) {
+        db.farmer = cloudProfile;
+        await saveDiaryDatabase(db);
+        return cloudProfile;
+      }
+    } catch {}
+  }
   return db.farmer;
 }
 
@@ -586,9 +599,17 @@ export async function updateFarmerProfile(updates: Partial<FarmerProfile>): Prom
   db.farmer = {
     ...db.farmer,
     ...updates,
-    id: db.farmer.id,
+    id: db.farmer?.id || 'farmer_01',
   };
   await saveDiaryDatabase(db);
+
+  // Sync profile details to Cloud Firestore
+  try {
+    await saveFarmerProfileToFirestore(db.farmer);
+  } catch (err) {
+    console.warn('Firestore profile sync error:', err);
+  }
+
   return db.farmer;
 }
 
@@ -689,9 +710,23 @@ export async function isUserRegistered(): Promise<boolean> {
     const info = await FileSystem.getInfoAsync(path);
     if (info.exists) return true;
 
-    // Check if farmer profile was previously saved in the database
+    // Check Cloud Firestore for previously registered profile
+    try {
+      const cloudProfile = await fetchFarmerProfileFromFirestore();
+      if (cloudProfile && cloudProfile.name) {
+        const db = await getDiaryDatabase();
+        db.farmer = cloudProfile;
+        await saveDiaryDatabase(db);
+        await setUserRegistered(true);
+        return true;
+      }
+    } catch (e) {
+      console.warn('Cloud profile registration check warning:', e);
+    }
+
+    // Check if farmer profile was previously saved in the local database
     const db = await getDiaryDatabase();
-    return !!(db.farmer && db.farmer.name && db.farmer.name.trim().length > 0);
+    return !!(db.farmer && db.farmer.name && db.farmer.name.trim().length > 0 && db.farmer.name !== 'पवन पाटील');
   } catch {
     return false;
   }
