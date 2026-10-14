@@ -257,15 +257,15 @@ export default function LoginScreen() {
   const currentLang: Language = language || 'mr';
   const texts = STEP_TEXTS[currentLang] || STEP_TEXTS.mr;
 
-  // Flow State (0: Welcome, 1: Language, 2: Phone, 3: OTP, 4: Profile, 5: Permissions, 6: Complete)
-  const [currentStep, setCurrentStep] = useState<number>(0);
+  // Flow State (2: Phone/Login, 3: OTP, 4: Profile, 5: Permissions, 6: Complete)
+  const [currentStep, setCurrentStep] = useState<number>(2);
 
-  // Form Fields
-  const [phoneNumber, setPhoneNumber] = useState('8275123456');
-  const [otpDigits, setOtpDigits] = useState<string[]>(['4', '7', '2', '1', '9', '0']);
-  const [timerSeconds, setTimerSeconds] = useState(25);
-  const [profileName, setProfileName] = useState('पवनकुमार पाटील');
-  const [profileVillage, setProfileVillage] = useState('चोपडा, जळगाव');
+  // Form Fields (Clean initial state for real users)
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const [timerSeconds, setTimerSeconds] = useState(60);
+  const [profileName, setProfileName] = useState('');
+  const [profileVillage, setProfileVillage] = useState('');
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
 
   // Permissions state
@@ -540,20 +540,19 @@ export default function LoginScreen() {
 
   // Back button handler
   const handleGoBack = () => {
-    if (currentStep > 0) {
+    if (currentStep > 2) {
       setCurrentStep(currentStep - 1);
     }
   };
 
   // Helper Stepper indicator
   const renderStepIndicator = () => {
-    if (currentStep === 0 || currentStep === 6) return null;
+    if (currentStep < 2 || currentStep === 6) return null;
     const steps = [
-      { id: 1, label: texts.step1Name },
-      { id: 2, label: texts.step2Name },
-      { id: 3, label: texts.step3Name },
-      { id: 4, label: texts.step4Name },
-      { id: 5, label: texts.step5Name },
+      { id: 2, num: 1, label: texts.step2Name },
+      { id: 3, num: 2, label: texts.step3Name },
+      { id: 4, num: 3, label: texts.step4Name },
+      { id: 5, num: 4, label: texts.step5Name },
     ];
 
     return (
@@ -580,7 +579,7 @@ export default function LoginScreen() {
                         isActive && styles.stepBadgeTextActive,
                       ]}
                     >
-                      {st.id}
+                      {st.num}
                     </Text>
                   )}
                 </View>
@@ -743,7 +742,7 @@ export default function LoginScreen() {
 
         <SafeAreaView edges={['top']} style={styles.compactHeaderTop}>
           <View style={styles.headerNavRow}>
-            {currentStep > 0 && currentStep < 6 ? (
+            {currentStep > 2 && currentStep < 6 ? (
               <TouchableOpacity
                 style={styles.navRoundBtn}
                 onPress={handleGoBack}
