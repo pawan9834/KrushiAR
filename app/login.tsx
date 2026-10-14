@@ -1,5 +1,11 @@
 import { Language, useLanguage } from '@/context/LanguageContext';
-import { isOnboardingComplete, setOnboardingComplete, updateFarmerProfile } from '@/services/diaryStorage';
+import {
+  isOnboardingComplete,
+  isUserRegistered,
+  setOnboardingComplete,
+  setUserRegistered,
+  updateFarmerProfile,
+} from '@/services/diaryStorage';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   getAuth,
@@ -436,6 +442,17 @@ export default function LoginScreen() {
           return;
         }
       }
+
+      // Check if user is ALREADY REGISTERED (Returning User Login)
+      const registered = await isUserRegistered();
+      if (registered) {
+        // Direct Login: User already exists, skip Profile & Permissions!
+        await setOnboardingComplete(true);
+        router.replace('/(tabs)');
+        return;
+      }
+
+      // First-time user registration flow: Proceed to Profile setup
       setCurrentStep(4);
     } catch (err: any) {
       console.warn('Firebase OTP verification error:', err);
@@ -483,6 +500,7 @@ export default function LoginScreen() {
         preferredLanguage: currentLang,
         avatarUri: profilePhoto || undefined,
       });
+      await setUserRegistered(true);
     } catch (err) {
       console.warn('Error saving profile:', err);
     }
@@ -534,6 +552,7 @@ export default function LoginScreen() {
 
   // Step 6: Finish onboarding and navigate to Home
   const handleFinishOnboarding = async () => {
+    await setUserRegistered(true);
     await setOnboardingComplete(true);
     router.replace('/(tabs)');
   };

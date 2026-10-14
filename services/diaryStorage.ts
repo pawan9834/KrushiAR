@@ -678,3 +678,34 @@ export async function setOnboardingComplete(completed: boolean): Promise<void> {
     console.warn('Failed to update onboarding state:', err);
   }
 }
+
+/**
+ * Checks if the user has previously completed registration in the app.
+ * This persists across logouts so returning users only need Mobile + OTP to log in.
+ */
+export async function isUserRegistered(): Promise<boolean> {
+  try {
+    const path = `${FileSystem.documentDirectory}user_registered.txt`;
+    const info = await FileSystem.getInfoAsync(path);
+    if (info.exists) return true;
+
+    // Check if farmer profile was previously saved in the database
+    const db = await getDiaryDatabase();
+    return !!(db.farmer && db.farmer.name && db.farmer.name.trim().length > 0);
+  } catch {
+    return false;
+  }
+}
+
+export async function setUserRegistered(registered: boolean): Promise<void> {
+  try {
+    const path = `${FileSystem.documentDirectory}user_registered.txt`;
+    if (registered) {
+      await FileSystem.writeAsStringAsync(path, 'true');
+    } else {
+      await FileSystem.deleteAsync(path, { idempotent: true });
+    }
+  } catch (err) {
+    console.warn('Failed to update user_registered state:', err);
+  }
+}
