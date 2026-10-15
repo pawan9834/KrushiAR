@@ -8,19 +8,55 @@ import {
   ImageBackground,
   Platform,
   RefreshControl,
-  ActivityIndicator,
 } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import {
+  ArrowLeft,
+  MapPin,
+  ChevronDown,
+  Sun,
+  Cloud,
+  CloudSun,
+  CloudRain,
+  CloudLightning,
+  Thermometer,
+  RefreshCw,
+  Droplets,
+  Wind,
+  Compass,
+  ShieldCheck,
+  Sprout,
+  ChevronRight,
+  FlaskConical,
+} from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '@/context/LanguageContext';
 import { useUserLocation } from '@/context/LocationContext';
+import { Crop, getCrops, getFarmerProfile } from '@/services/diaryStorage';
 import {
   fetchExtendedWeatherForecast,
+  getCoordinatesForLocation,
   ExtendedWeatherForecast,
   HourlyWeatherItem,
   DailyWeatherItem,
 } from '@/services/imdWeather';
+
+function renderWeatherConditionIcon(iconName: string, color: string, size = 22) {
+  switch (iconName) {
+    case 'rainy':
+      return <CloudRain size={size} color={color} strokeWidth={2} />;
+    case 'cloud':
+    case 'cloudy':
+      return <Cloud size={size} color={color} strokeWidth={2} />;
+    case 'partly-sunny':
+      return <CloudSun size={size} color={color} strokeWidth={2} />;
+    case 'thunderstorm':
+      return <CloudLightning size={size} color={color} strokeWidth={2} />;
+    case 'sunny':
+    default:
+      return <Sun size={size} color={color} strokeWidth={2} />;
+  }
+}
 
 export default function WeatherScreen() {
   const insets = useSafeAreaInsets();
@@ -38,29 +74,47 @@ export default function WeatherScreen() {
 
   // Live Weather Forecast State
   const [forecast, setForecast] = useState<ExtendedWeatherForecast | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [registeredPlace, setRegisteredPlace] = useState<{ village: string; district: string } | null>(null);
+  const [crops, setCrops] = useState<Crop[]>([]);
 
   const loadWeather = useCallback(async (isRefresh = false) => {
     if (isRefresh) setIsRefreshing(true);
-    else setIsLoading(true);
 
     try {
-      const lat = location.latitude || 21.2483;
-      const lon = location.longitude || 75.3023;
-      const district = location.district || location.city || 'Jalgaon';
-      const data = await fetchExtendedWeatherForecast(lat, lon, district, language);
+      const [profile, cropList] = await Promise.all([
+        getFarmerProfile(),
+        getCrops(),
+      ]);
+      setCrops(cropList);
+
+      const district = profile?.district || location.district || 'Jalgaon';
+      const village = profile?.village
+        ? profile.village.split(',')[0].trim()
+        : (profile?.taluka || location.city || district);
+      setRegisteredPlace({ village, district });
+
+      // Prioritize coordinates for location entered in application registration
+      const coords = await getCoordinatesForLocation(village, district, profile?.state || location.state);
+      const data = await fetchExtendedWeatherForecast(coords.lat, coords.lon, district, language);
       setForecast(data);
     } catch (err) {
       console.warn('Failed to load weather:', err);
     } finally {
-      setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [location.latitude, location.longitude, location.district, location.city, language]);
+  }, [location.district, location.city, location.state, language]);
 
   useEffect(() => {
-    loadWeather();
+    let isMounted = true;
+    (async () => {
+      if (isMounted) {
+        await loadWeather();
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
   }, [loadWeather]);
 
   const hourlyData: HourlyWeatherItem[] = forecast?.hourly || [];
@@ -71,7 +125,7 @@ export default function WeatherScreen() {
     const today = new Date();
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `Today, ${today.getDate()} ${monthNames[today.getMonth()]} ${today.getFullYear()}`;
+    return `${dayNames[today.getDay()]}, ${today.getDate()} ${monthNames[today.getMonth()]} ${today.getFullYear()}`;
   };
 
   const filterTabs = [
@@ -93,7 +147,7 @@ export default function WeatherScreen() {
               style={styles.backBtn}
               onPress={() => router.back()}
               activeOpacity={0.7}>
-              <Ionicons name="arrow-back" size={24} color="#0f172a" />
+              <ArrowLeft size={24} color="#0f172a" />
             </TouchableOpacity>
 
             {/* Title & Subtitle */}
@@ -107,11 +161,11 @@ export default function WeatherScreen() {
               style={styles.locationChip}
               onPress={() => setShowLocationModal(true)}
               activeOpacity={0.8}>
-              <Ionicons name="location-sharp" size={13} color="#16a34a" />
+              <MapPin size={13} color="#16a34a" />
               <Text style={styles.locationText} numberOfLines={1}>
-                {location.displayLocation}
+                {registeredPlace ? `${registeredPlace.village}, ${registeredPlace.district}` : location.displayLocation}
               </Text>
-              <Ionicons name="chevron-down" size={11} color="#0f172a" />
+              <ChevronDown size={11} color="#0f172a" />
             </TouchableOpacity>
           </View>
         </View>
@@ -141,23 +195,20 @@ export default function WeatherScreen() {
 
                 <View style={styles.heroTempRow}>
                   <Text style={styles.heroTempText}>{current ? `${current.temperature}°C` : '32°C'}</Text>
-                  <Ionicons
-                    name={current?.conditionIcon === 'rainy' ? 'rainy' : current?.conditionIcon === 'cloudy' ? 'cloud' : 'sunny'}
-                    size={38}
-                    color="#facc15"
-                    style={{ marginLeft: 6 }}
-                  />
+                  <View style={{ marginLeft: 6 }}>
+                    {renderWeatherConditionIcon(current?.conditionIcon || 'sunny', '#facc15', 38)}
+                  </View>
                 </View>
 
                 <Text style={styles.heroConditionText}>{current?.condition || 'Clear Sky'}</Text>
 
                 <View style={styles.heroMetaRow}>
-                  <Ionicons name="thermometer-outline" size={13} color="#ffffff" />
+                  <Thermometer size={13} color="#ffffff" />
                   <Text style={styles.heroMetaText}>Feels like {current ? `${current.temperature + 2}°C` : '34°C'}</Text>
                 </View>
 
                 <View style={styles.heroMetaRow}>
-                  <Ionicons name="refresh-outline" size={13} color="#ffffff" />
+                  <RefreshCw size={13} color="#ffffff" />
                   <Text style={styles.heroMetaText}>Updated {current?.lastUpdated || 'just now'}</Text>
                 </View>
               </View>
@@ -165,31 +216,31 @@ export default function WeatherScreen() {
               {/* Right Column: Frosted Glass Stats Card */}
               <View style={styles.frostedStatsCard}>
                 <View style={styles.statLine}>
-                  <Ionicons name="water-outline" size={15} color="#0284c7" />
+                  <Droplets size={15} color="#0284c7" />
                   <Text style={styles.statLabel}>Humidity</Text>
                   <Text style={styles.statVal}>{current ? `${current.humidity}%` : '42%'}</Text>
                 </View>
 
                 <View style={styles.statLine}>
-                  <Ionicons name="rainy-outline" size={15} color="#0284c7" />
+                  <CloudRain size={15} color="#0284c7" />
                   <Text style={styles.statLabel}>Rainfall</Text>
                   <Text style={styles.statVal}>{current ? `${current.rainfallMm} mm` : '0 mm'}</Text>
                 </View>
 
                 <View style={styles.statLine}>
-                  <MaterialCommunityIcons name="weather-windy" size={15} color="#475569" />
+                  <Wind size={15} color="#475569" />
                   <Text style={styles.statLabel}>Wind Speed</Text>
                   <Text style={styles.statVal}>{current ? `${current.windSpeed} km/h` : '10 km/h'}</Text>
                 </View>
 
                 <View style={styles.statLine}>
-                  <Ionicons name="compass-outline" size={15} color="#475569" />
+                  <Compass size={15} color="#475569" />
                   <Text style={styles.statLabel}>Pressure</Text>
                   <Text style={styles.statVal}>{forecast?.pressureHpa ? `${forecast.pressureHpa} hPa` : '1012 hPa'}</Text>
                 </View>
 
                 <View style={styles.statLine}>
-                  <Ionicons name="sunny-outline" size={15} color="#f59e0b" />
+                  <Sun size={15} color="#f59e0b" />
                   <Text style={styles.statLabel}>UV Index</Text>
                   <Text style={[styles.statVal, { color: (forecast?.uvIndex || 6) > 7 ? '#dc2626' : '#16a34a', fontWeight: '800' }]}>
                     {forecast?.uvIndex || 6} ({(forecast?.uvIndex || 6) > 7 ? 'High' : 'Moderate'})
@@ -198,6 +249,37 @@ export default function WeatherScreen() {
               </View>
             </View>
           </ImageBackground>
+        </View>
+
+        {/* 2.5 Registered Farm Location Weather Advisory Banner */}
+        <View style={styles.registeredAdvisoryBox}>
+          <View style={styles.advisoryBadgeHead}>
+            <View style={styles.registeredLocationBadge}>
+              <ShieldCheck size={14} color="#15803d" />
+              <Text style={styles.registeredLocationBadgeText}>
+                {language === 'mr'
+                  ? `📍 नोंदणीकृत शेत: ${registeredPlace?.village || registeredPlace?.district || 'चोपडा'}`
+                  : language === 'hi'
+                    ? `📍 पंजीकृत खेत: ${registeredPlace?.village || registeredPlace?.district || 'चोपड़ा'}`
+                    : `📍 Registered Farm: ${registeredPlace?.village || registeredPlace?.district || 'Farm'}`}
+              </Text>
+            </View>
+            <View style={styles.imdLiveTag}>
+              <Text style={styles.imdLiveTagText}>IMD Live</Text>
+            </View>
+          </View>
+          <Text style={styles.advisoryMainText}>
+            {current?.nowcastText || current?.warningText || 'स्थानिक हवामान पिकांसाठी अनुकूल आहे.'}
+          </Text>
+          {crops.length > 0 && (
+            <View style={styles.cropAdvisoryPillRow}>
+              <Sprout size={13} color="#15803d" />
+              <Text style={styles.cropAdvisoryPillText}>
+                {language === 'mr' ? 'नोंदणीकृत पिके:' : language === 'hi' ? 'पंजीकृत फसलें:' : 'Registered Crops:'}{' '}
+                {crops.map((c) => c.name).join(', ')}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* 3. Filter Mode Tabs Strip */}
@@ -252,12 +334,14 @@ export default function WeatherScreen() {
                   {item.time}
                 </Text>
 
-                <Ionicons name={item.icon as any} size={22} color={item.color} style={{ marginVertical: 6 }} />
+                <View style={{ marginVertical: 6 }}>
+                  {renderWeatherConditionIcon(item.icon, item.color, 22)}
+                </View>
 
                 <Text style={styles.hourlyTempText}>{item.temp}</Text>
 
                 <View style={styles.rainChanceRow}>
-                  <Ionicons name="water" size={10} color="#0284c7" />
+                  <Droplets size={10} color="#0284c7" />
                   <Text style={styles.rainChanceText}>{item.rain}</Text>
                 </View>
               </TouchableOpacity>
@@ -278,7 +362,7 @@ export default function WeatherScreen() {
             {/* Card 1: Temperature */}
             <View style={styles.detailCard}>
               <View style={[styles.detailIconWrap, { backgroundColor: '#fee2e2' }]}>
-                <Ionicons name="thermometer" size={18} color="#ef4444" />
+                <Thermometer size={18} color="#ef4444" />
               </View>
               <Text style={styles.detailCardLabel}>Temperature</Text>
               <Text style={styles.detailCardVal}>
@@ -290,7 +374,7 @@ export default function WeatherScreen() {
             {/* Card 2: Humidity */}
             <View style={styles.detailCard}>
               <View style={[styles.detailIconWrap, { backgroundColor: '#e0f2fe' }]}>
-                <Ionicons name="water" size={18} color="#0284c7" />
+                <Droplets size={18} color="#0284c7" />
               </View>
               <Text style={styles.detailCardLabel}>Humidity</Text>
               <Text style={styles.detailCardVal}>{current ? `${current.humidity}%` : '42%'}</Text>
@@ -300,7 +384,7 @@ export default function WeatherScreen() {
             {/* Card 3: Rainfall */}
             <View style={styles.detailCard}>
               <View style={[styles.detailIconWrap, { backgroundColor: '#dcfce7' }]}>
-                <Ionicons name="rainy" size={18} color="#16a34a" />
+                <CloudRain size={18} color="#16a34a" />
               </View>
               <Text style={styles.detailCardLabel}>Rainfall</Text>
               <Text style={styles.detailCardVal}>{current ? `${current.rainfallMm} mm` : '0 mm'}</Text>
@@ -310,7 +394,7 @@ export default function WeatherScreen() {
             {/* Card 4: Wind Speed */}
             <View style={styles.detailCard}>
               <View style={[styles.detailIconWrap, { backgroundColor: '#f3e8ff' }]}>
-                <MaterialCommunityIcons name="weather-windy" size={18} color="#9333ea" />
+                <Wind size={18} color="#9333ea" />
               </View>
               <Text style={styles.detailCardLabel}>Wind Speed</Text>
               <Text style={styles.detailCardVal}>{current ? `${current.windSpeed} km/h` : '10 km/h'}</Text>
@@ -352,12 +436,14 @@ export default function WeatherScreen() {
                   </Text>
                   <Text style={styles.dailyDateSub}>{item.date}</Text>
 
-                  <Ionicons name={item.icon as any} size={22} color={item.color} style={{ marginVertical: 6 }} />
+                  <View style={{ marginVertical: 6 }}>
+                    {renderWeatherConditionIcon(item.icon, item.color, 22)}
+                  </View>
 
                   <Text style={styles.dailyTempText}>{item.temp}</Text>
 
                   <View style={styles.rainChanceRow}>
-                    <Ionicons name="water" size={10} color="#0284c7" />
+                    <Droplets size={10} color="#0284c7" />
                     <Text style={styles.rainChanceText}>{item.rain}</Text>
                   </View>
                 </TouchableOpacity>
@@ -376,46 +462,76 @@ export default function WeatherScreen() {
           </View>
 
           <View style={styles.recommendationsCol}>
-            {/* Recommendation 1 */}
+            {/* Recommendation 1: Irrigation Advice */}
             <TouchableOpacity style={styles.recommendCard} activeOpacity={0.8}>
               <View style={[styles.recommendIconWrap, { backgroundColor: '#dcfce7' }]}>
-                <MaterialCommunityIcons name="sprout" size={20} color="#16a34a" />
+                <Sprout size={20} color="#16a34a" />
               </View>
               <View style={styles.recommendTextCol}>
                 <Text style={[styles.recommendTitle, { color: '#15803d' }]}>
-                  {t.goodForIrrigation}
+                  {current && (current.rainChance > 40 || current.rainfallMm > 2)
+                    ? (language === 'mr' ? '💧 पाणी देणे थांबवा (पावसाची शक्यता)' : language === 'hi' ? '💧 सिंचाई रोकें (बारिश संभावना)' : 'Hold Irrigation (Rain Likely)')
+                    : (language === 'mr' ? '💧 सिंचन सल्ला (योग्य वेळ)' : language === 'hi' ? '💧 सिंचाई सलाह' : (t.goodForIrrigation || 'Irrigation Advisory'))}
                 </Text>
-                <Text style={styles.recommendDesc}>{t.irrigationDesc}</Text>
+                <Text style={styles.recommendDesc}>
+                  {current && (current.rainChance > 40 || current.rainfallMm > 2)
+                    ? (language === 'mr'
+                      ? `${registeredPlace?.village || registeredPlace?.district || 'तुमच्या भागात'} पुढील २४ तासांत पावसाचा अंदाज आहे. पिकांना अतिरिक्त पाणी देणे टाळा.`
+                      : `${registeredPlace?.village || registeredPlace?.district || 'आपके क्षेत्र'} में बारिश की संभावना है। सिंचाई टालें।`)
+                    : (language === 'mr'
+                      ? `${registeredPlace?.village || registeredPlace?.district || 'परिसरात'} तापमान ${current?.temperature || 32}°C आहे. दुपारनंतर किंवा संध्याकाळी पाणी दिल्यास ओलावा टिकेल.`
+                      : `${registeredPlace?.village || registeredPlace?.district || 'क्षेत्र'} में शाम के समय सिंचाई करें।`)}
+                </Text>
               </View>
-              <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+              <ChevronRight size={16} color="#94a3b8" />
             </TouchableOpacity>
 
-            {/* Recommendation 2 */}
+            {/* Recommendation 2: Spraying / फवारणी सल्ला */}
             <TouchableOpacity style={styles.recommendCard} activeOpacity={0.8}>
               <View style={[styles.recommendIconWrap, { backgroundColor: '#fef3c7' }]}>
-                <Ionicons name="sunny" size={20} color="#d97706" />
+                <FlaskConical size={20} color="#d97706" />
               </View>
               <View style={styles.recommendTextCol}>
                 <Text style={[styles.recommendTitle, { color: '#b45309' }]}>
-                  {t.highTempAlert}
+                  {current && current.windSpeed > 15
+                    ? (language === 'mr' ? '🧪 फवारणी टाळा (वाऱ्याचा वेग जास्त)' : language === 'hi' ? '🧪 छिड़काव टालें (तेज हवा)' : 'Delay Spraying (High Wind)')
+                    : current && (current.rainChance > 40)
+                      ? (language === 'mr' ? '🧪 फवारणी पुढे ढकला (पाऊस अंदाज)' : language === 'hi' ? '🧪 छिड़काव रोकें (बारिश)' : 'Postpone Spraying')
+                      : (language === 'mr' ? '🧪 कीटकनाशक फवारणीसाठी योग्य वेळ' : language === 'hi' ? '🧪 छिड़काव के लिए अनुकूल समय' : 'Good for Spraying')}
                 </Text>
-                <Text style={styles.recommendDesc}>{t.highTempDesc}</Text>
+                <Text style={styles.recommendDesc}>
+                  {current && current.windSpeed > 15
+                    ? (language === 'mr'
+                      ? `${registeredPlace?.village || registeredPlace?.district || 'भागात'} वाऱ्याचा वेग ${current.windSpeed} km/h आहे. औषध हवेत उडून वाया जाऊ नये म्हणून फवारणी थांबवा.`
+                      : `तेज हवा (${current.windSpeed} km/h) के कारण छिड़काव टालें।`)
+                    : (language === 'mr'
+                      ? `सकाळी ९ वाजेपूर्वी किंवा संध्याकाळी शांत हवेत फवारणी करावी. चिकटद्रव्य (स्टीकर) अवश्य वापरावे.`
+                      : `शांत हवा में सुबह या शाम के समय छिड़काव करें।`)}
+                </Text>
               </View>
-              <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+              <ChevronRight size={16} color="#94a3b8" />
             </TouchableOpacity>
 
-            {/* Recommendation 3 */}
+            {/* Recommendation 3: Crop Care / पिकांची काळजी */}
             <TouchableOpacity style={styles.recommendCard} activeOpacity={0.8}>
               <View style={[styles.recommendIconWrap, { backgroundColor: '#e0f2fe' }]}>
-                <MaterialCommunityIcons name="weather-windy" size={20} color="#0284c7" />
+                <Wind size={20} color="#0284c7" />
               </View>
               <View style={styles.recommendTextCol}>
                 <Text style={[styles.recommendTitle, { color: '#0369a1' }]}>
-                  {t.moderateWind}
+                  {language === 'mr'
+                    ? `🌾 ${crops.length > 0 ? crops[0].name : 'शेती'} पीक संरक्षण`
+                    : language === 'hi'
+                      ? `🌾 ${crops.length > 0 ? crops[0].name : 'फसल'} सुरक्षा`
+                      : 'Crop Protection'}
                 </Text>
-                <Text style={styles.recommendDesc}>{t.moderateWindDesc}</Text>
+                <Text style={styles.recommendDesc}>
+                  {language === 'mr'
+                    ? `${registeredPlace?.village || registeredPlace?.district || 'स्थानिक'} हवामानानुसार आर्द्रता ${current?.humidity || 42}% आहे. बुरशीजन्य रोगांचे नियमित निरीक्षण करा.`
+                    : `${registeredPlace?.village || registeredPlace?.district || 'मौसम'} अनुसार नियमित फसल निरीक्षण करें।`}
+                </Text>
               </View>
-              <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+              <ChevronRight size={16} color="#94a3b8" />
             </TouchableOpacity>
           </View>
         </View>
@@ -810,5 +926,66 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#64748b',
     lineHeight: 15,
+  },
+  registeredAdvisoryBox: {
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1.5,
+    borderColor: '#86efac',
+    borderRadius: 16,
+    padding: 14,
+    marginVertical: 12,
+  },
+  advisoryBadgeHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  registeredLocationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#dcfce7',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  registeredLocationBadgeText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#15803d',
+  },
+  imdLiveTag: {
+    backgroundColor: '#15803d',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  imdLiveTagText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  advisoryMainText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#0f172a',
+    lineHeight: 19,
+    marginTop: 4,
+  },
+  cropAdvisoryPillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#dcfce7',
+  },
+  cropAdvisoryPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#166534',
   },
 });

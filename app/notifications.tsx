@@ -9,7 +9,18 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import {
+  ArrowLeft,
+  CheckCheck,
+  Layers,
+  CheckCircle2,
+  Sprout,
+  Sun,
+  TrendingUp,
+  Bell,
+  Clock,
+  ChevronRight,
+} from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '@/context/LanguageContext';
@@ -26,8 +37,6 @@ interface NotificationItem {
   timeText: string;
   section: 'today' | 'yesterday' | 'thisWeek';
   isUnread: boolean;
-  iconName: string;
-  iconType: 'ionicons' | 'mci';
   iconColor: string;
   iconBg: string;
   imageUri?: string;
@@ -58,8 +67,6 @@ export default function NotificationsScreen() {
           timeText: 'Just now',
           section: 'today',
           isUnread: true,
-          iconName: 'sunny',
-          iconType: 'ionicons',
           iconColor: '#f59e0b',
           iconBg: '#fef3c7',
           route: '/weather',
@@ -75,8 +82,6 @@ export default function NotificationsScreen() {
             timeText: `${idx + 1} hr ago`,
             section: 'today',
             isUnread: idx === 0,
-            iconName: 'sprout',
-            iconType: 'mci',
             iconColor: '#16a34a',
             iconBg: '#dcfce7',
             imageUri: c.imageUrl,
@@ -94,8 +99,6 @@ export default function NotificationsScreen() {
             timeText: 'Recent',
             section: 'today',
             isUnread: false,
-            iconName: 'checkmark-circle',
-            iconType: 'ionicons',
             iconColor: '#16a34a',
             iconBg: '#dcfce7',
             route: '/(tabs)/market',
@@ -111,8 +114,6 @@ export default function NotificationsScreen() {
           timeText: 'Today',
           section: 'today',
           isUnread: true,
-          iconName: 'chart-line',
-          iconType: 'mci',
           iconColor: '#7c3aed',
           iconBg: '#ede9fe',
           route: '/(tabs)/market',
@@ -125,13 +126,13 @@ export default function NotificationsScreen() {
     })();
   }, [location.displayLocation, location.district, location.city]);
 
-  const categories = [
-    { key: 'all' as NotificationCategory, label: t.filterAll, icon: 'layers-outline' as const, isMCI: false },
-    { key: 'tasks' as NotificationCategory, label: t.filterTasksCat, icon: 'checkmark-circle-outline' as const, isMCI: false },
-    { key: 'crops' as NotificationCategory, label: t.filterCropsCat, icon: 'sprout-outline' as const, isMCI: true },
-    { key: 'weather' as NotificationCategory, label: t.filterWeatherCat, icon: 'sunny-outline' as const, isMCI: false },
-    { key: 'market' as NotificationCategory, label: t.filterMarketCat, icon: 'bar-chart-outline' as const, isMCI: false },
-    { key: 'system' as NotificationCategory, label: t.filterSystemCat, icon: 'notifications-outline' as const, isMCI: false },
+  const categories: { key: NotificationCategory; label: string }[] = [
+    { key: 'all', label: t.filterAll },
+    { key: 'tasks', label: t.filterTasksCat },
+    { key: 'crops', label: t.filterCropsCat },
+    { key: 'weather', label: t.filterWeatherCat },
+    { key: 'market', label: t.filterMarketCat },
+    { key: 'system', label: t.filterSystemCat },
   ];
 
   const handleMarkAllRead = () => {
@@ -161,11 +162,27 @@ export default function NotificationsScreen() {
 
   const todayUnreadCount = notifications.filter((n) => n.section === 'today' && n.isUnread).length;
 
-  const renderIcon = (item: NotificationItem) => {
-    if (item.iconType === 'mci') {
-      return <MaterialCommunityIcons name={item.iconName as any} size={20} color={item.iconColor} />;
+  const renderFilterIcon = (key: NotificationCategory, color: string) => {
+    switch (key) {
+      case 'all': return <Layers size={15} color={color} />;
+      case 'tasks': return <CheckCircle2 size={15} color={color} />;
+      case 'crops': return <Sprout size={15} color={color} />;
+      case 'weather': return <Sun size={15} color={color} />;
+      case 'market': return <TrendingUp size={15} color={color} />;
+      case 'system': return <Bell size={15} color={color} />;
+      default: return <Bell size={15} color={color} />;
     }
-    return <Ionicons name={item.iconName as any} size={20} color={item.iconColor} />;
+  };
+
+  const renderIcon = (item: NotificationItem) => {
+    switch (item.category) {
+      case 'weather': return <Sun size={20} color={item.iconColor} />;
+      case 'crops': return <Sprout size={20} color={item.iconColor} />;
+      case 'tasks': return <CheckCircle2 size={20} color={item.iconColor} />;
+      case 'market': return <TrendingUp size={20} color={item.iconColor} />;
+      case 'system': return <Bell size={20} color={item.iconColor} />;
+      default: return <Bell size={20} color={item.iconColor} />;
+    }
   };
 
   return (
@@ -179,7 +196,7 @@ export default function NotificationsScreen() {
             style={styles.backBtn}
             onPress={() => router.back()}
             activeOpacity={0.7}>
-            <Ionicons name="arrow-back" size={24} color="#0f172a" />
+            <ArrowLeft size={24} color="#0f172a" />
           </TouchableOpacity>
 
           {/* Title & Subtitle */}
@@ -193,7 +210,7 @@ export default function NotificationsScreen() {
             style={styles.markReadBtn}
             onPress={handleMarkAllRead}
             activeOpacity={0.8}>
-            <Ionicons name="checkmark-done" size={15} color="#16a34a" />
+            <CheckCheck size={16} color="#16a34a" />
             <Text style={styles.markReadText}>{t.markAllRead}</Text>
           </TouchableOpacity>
         </View>
@@ -214,19 +231,7 @@ export default function NotificationsScreen() {
                   isActive ? styles.filterPillActive : styles.filterPillInactive,
                 ]}
                 activeOpacity={0.8}>
-                {cat.isMCI ? (
-                  <MaterialCommunityIcons
-                    name={cat.icon as any}
-                    size={15}
-                    color={isActive ? '#ffffff' : '#64748b'}
-                  />
-                ) : (
-                  <Ionicons
-                    name={cat.icon as any}
-                    size={15}
-                    color={isActive ? '#ffffff' : '#64748b'}
-                  />
-                )}
+                {renderFilterIcon(cat.key, isActive ? '#ffffff' : '#64748b')}
                 <Text
                   style={[
                     styles.filterPillText,
@@ -281,7 +286,7 @@ export default function NotificationsScreen() {
                     <Text style={styles.itemTitle}>{item.title}</Text>
                     <Text style={styles.itemDesc}>{item.description}</Text>
                     <View style={styles.timeRow}>
-                      <Ionicons name="time-outline" size={12} color="#94a3b8" />
+                      <Clock size={12} color="#94a3b8" />
                       <Text style={styles.timeText}>{item.timeText}</Text>
                     </View>
                   </View>
@@ -292,7 +297,7 @@ export default function NotificationsScreen() {
                   )}
 
                   {/* Chevron Right */}
-                  <Ionicons name="chevron-forward" size={16} color="#94a3b8" style={{ marginLeft: 4 }} />
+                  <ChevronRight size={16} color="#94a3b8" style={{ marginLeft: 4 }} />
                 </TouchableOpacity>
               ))}
             </View>
@@ -327,7 +332,7 @@ export default function NotificationsScreen() {
                     <Text style={styles.itemTitle}>{item.title}</Text>
                     <Text style={styles.itemDesc}>{item.description}</Text>
                     <View style={styles.timeRow}>
-                      <Ionicons name="time-outline" size={12} color="#94a3b8" />
+                      <Clock size={12} color="#94a3b8" />
                       <Text style={styles.timeText}>{item.timeText}</Text>
                     </View>
                   </View>
@@ -338,7 +343,7 @@ export default function NotificationsScreen() {
                   )}
 
                   {/* Chevron Right */}
-                  <Ionicons name="chevron-forward" size={16} color="#94a3b8" style={{ marginLeft: 4 }} />
+                  <ChevronRight size={16} color="#94a3b8" style={{ marginLeft: 4 }} />
                 </TouchableOpacity>
               ))}
             </View>
@@ -373,13 +378,13 @@ export default function NotificationsScreen() {
                     <Text style={styles.itemTitle}>{item.title}</Text>
                     <Text style={styles.itemDesc}>{item.description}</Text>
                     <View style={styles.timeRow}>
-                      <Ionicons name="time-outline" size={12} color="#94a3b8" />
+                      <Clock size={12} color="#94a3b8" />
                       <Text style={styles.timeText}>{item.timeText}</Text>
                     </View>
                   </View>
 
                   {/* Chevron Right */}
-                  <Ionicons name="chevron-forward" size={16} color="#94a3b8" style={{ marginLeft: 4 }} />
+                  <ChevronRight size={16} color="#94a3b8" style={{ marginLeft: 4 }} />
                 </TouchableOpacity>
               ))}
             </View>

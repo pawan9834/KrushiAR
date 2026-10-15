@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Alert, Platform } from 'react-native';
+import { Alert } from 'react-native';
 import * as Location from 'expo-location';
+import { getFarmerProfile } from '@/services/diaryStorage';
+import { getCoordinatesForLocation } from '@/services/imdWeather';
 
 export interface UserLocationData {
   city: string;
@@ -14,6 +16,7 @@ export interface UserLocationData {
   displayDistrict: string;
   displayLocation: string;
   isLive: boolean;
+  isRegisteredLocation?: boolean;
 }
 
 interface LocationContextType {
@@ -22,6 +25,7 @@ interface LocationContextType {
   permissionStatus: 'undetermined' | 'granted' | 'denied';
   errorMsg: string | null;
   requestLocation: (showAlert?: boolean) => Promise<boolean>;
+  reloadFromProfile: () => Promise<void>;
   showLocationModal: boolean;
   setShowLocationModal: (show: boolean) => void;
 }
@@ -38,6 +42,7 @@ const DEFAULT_LOCATION: UserLocationData = {
   displayDistrict: 'Jalgaon',
   displayLocation: 'Chopda, Jalgaon',
   isLive: false,
+  isRegisteredLocation: false,
 };
 
 const LocationContext = createContext<LocationContextType>({
@@ -46,6 +51,7 @@ const LocationContext = createContext<LocationContextType>({
   permissionStatus: 'undetermined',
   errorMsg: null,
   requestLocation: async () => false,
+  reloadFromProfile: async () => {},
   showLocationModal: false,
   setShowLocationModal: () => {},
 });
@@ -57,6 +63,40 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showLocationModal, setShowLocationModal] = useState<boolean>(false);
 
+  // Load location registered in farmer profile during app registration
+  const reloadFromProfile = useCallback(async () => {
+    try {
+      const profile = await getFarmerProfile();
+      if (profile && (profile.district || profile.village)) {
+        const rawCity = profile.village
+          ? profile.village.split(',')[0].trim()
+          : (profile.taluka || profile.district);
+        const rawDistrict = profile.district || 'Jalgaon';
+        const rawState = profile.state || 'Maharashtra';
+        const coords = await getCoordinatesForLocation(rawCity, rawDistrict, rawState);
+
+        const updated: UserLocationData = {
+          city: rawCity,
+          district: rawDistrict,
+          state: rawState,
+          country: 'India',
+          postalCode: profile.pincode || '',
+          latitude: coords.lat,
+          longitude: coords.lon,
+          displayCity: rawCity,
+          displayDistrict: rawDistrict,
+          displayLocation: `${rawCity}, ${rawDistrict}`,
+          isLive: true,
+          isRegisteredLocation: true,
+        };
+
+        setLocation(updated);
+      }
+    } catch (err) {
+      console.warn('Could not load registered profile location:', err);
+    }
+  }, []);
+
   const fetchCurrentLocation = useCallback(async (showAlert: boolean = false): Promise<boolean> => {
     setIsLoading(true);
     setErrorMsg(null);
@@ -67,13 +107,13 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setPermissionStatus(status === 'granted' ? 'granted' : 'denied');
 
       if (status !== 'granted') {
-        const msg = 'Location permission is required to detect your farm area and local weather.';
-        setErrorMsg(msg);
+        // Fallback gracefully to registered farm profile location
+        await reloadFromProfile();
         setIsLoading(false);
         if (showAlert) {
           Alert.alert(
-            'Location Access Needed',
-            msg + ' Using default location: Chopda, Jalgaon.',
+            'GPS Access Needed',
+            'Using your registered farm location for weather & advisory.',
             [{ text: 'OK' }]
           );
         }
@@ -110,6 +150,7 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           displayDistrict: detectedDistrict,
           displayLocation: `${detectedCity}, ${detectedDistrict}`,
           isLive: true,
+          isRegisteredLocation: false,
         };
 
         setLocation(updated);
@@ -136,24 +177,24 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     } catch (err: any) {
       console.warn('Error fetching location:', err);
-      const msg = err?.message || 'Could not fetch current location';
-      setErrorMsg(msg);
+      await reloadFromProfile();
       setIsLoading(false);
-      if (showAlert) {
-        Alert.alert(
-          'Location Detection',
-          'Could not retrieve live GPS location. Using default location: Chopda, Jalgaon.',
-          [{ text: 'OK' }]
-        );
-      }
       return false;
     }
-  }, []);
+  }, [reloadFromProfile]);
 
-  // Request location automatically once on startup
+  // Initialize with location entered in application registration
   useEffect(() => {
-    fetchCurrentLocation(false);
-  }, [fetchCurrentLocation]);
+    let isMounted = true;
+    (async () => {
+      if (isMounted) {
+        await reloadFromProfile();
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
+  }, [reloadFromProfile]);
 
   return (
     <LocationContext.Provider
@@ -163,6 +204,7 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         permissionStatus,
         errorMsg,
         requestLocation: fetchCurrentLocation,
+        reloadFromProfile,
         showLocationModal,
         setShowLocationModal,
       }}>

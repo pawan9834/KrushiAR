@@ -10,13 +10,51 @@ import {
   Platform,
   Modal,
 } from 'react-native';
-import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
+import {
+  ArrowLeft,
+  Globe,
+  MoreVertical,
+  Sprout,
+  PlusCircle,
+  ShieldCheck,
+  Pencil,
+  MapPin,
+  Calendar,
+  Clock,
+  Flower2,
+  FileText,
+  CheckSquare,
+  Wallet,
+  BarChart3,
+  Camera,
+  Lightbulb,
+  HelpCircle,
+  Sun,
+  Droplets,
+  Wind,
+  Mountain,
+  CheckCircle2,
+  ChevronRight,
+  X,
+} from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 import { useLanguage, Language } from '@/context/LanguageContext';
 import { useUserLocation } from '@/context/LocationContext';
 import { getCrops, getCropById, Crop } from '@/services/diaryStorage';
+
+function renderSubTabIcon(key: string, color: string) {
+  switch (key) {
+    case 'overview': return <FileText size={16} color={color} />;
+    case 'activities': return <CheckSquare size={16} color={color} />;
+    case 'expenses': return <Wallet size={16} color={color} />;
+    case 'yield': return <BarChart3 size={16} color={color} />;
+    case 'photos': return <Camera size={16} color={color} />;
+    case 'advisory': return <Lightbulb size={16} color={color} />;
+    default: return <FileText size={16} color={color} />;
+  }
+}
 
 export default function CropDetailsScreen() {
   const insets = useSafeAreaInsets();
@@ -48,12 +86,12 @@ export default function CropDetailsScreen() {
   const [showLanguageModal, setShowLanguageModal] = useState(false);
 
   const subTabs = [
-    { key: 'overview', label: t.tabOverview, icon: 'file-document-outline' as const },
-    { key: 'activities', label: t.tabActivities, icon: 'checkbox-marked-outline' as const },
-    { key: 'expenses', label: t.tabExpenses, icon: 'currency-inr' as const },
-    { key: 'yield', label: t.tabYield, icon: 'chart-bar' as const },
-    { key: 'photos', label: t.tabPhotos, icon: 'image-outline' as const },
-    { key: 'advisory', label: t.tabAdvisory, icon: 'lightbulb-outline' as const },
+    { key: 'overview', label: t.tabOverview },
+    { key: 'activities', label: t.tabActivities },
+    { key: 'expenses', label: t.tabExpenses },
+    { key: 'yield', label: t.tabYield },
+    { key: 'photos', label: t.tabPhotos },
+    { key: 'advisory', label: t.tabAdvisory },
   ];
 
   // Irrigation schedule data
@@ -113,7 +151,7 @@ export default function CropDetailsScreen() {
                 style={styles.backBtn}
                 onPress={() => router.back()}
                 activeOpacity={0.7}>
-                <Ionicons name="arrow-back" size={24} color="#0f172a" />
+                <ArrowLeft size={24} color="#0f172a" />
               </TouchableOpacity>
 
               {/* Title & Subtitle */}
@@ -127,7 +165,7 @@ export default function CropDetailsScreen() {
                 style={styles.langPillBtn}
                 onPress={() => setShowLanguageModal(true)}
                 activeOpacity={0.8}>
-                <Ionicons name="globe-outline" size={15} color="#16a34a" />
+                <Globe size={15} color="#16a34a" />
                 <Text style={styles.langPillText}>
                   {language === 'en' ? 'EN' : language === 'mr' ? 'मराठी' : 'हिंदी'}
                 </Text>
@@ -138,24 +176,45 @@ export default function CropDetailsScreen() {
                 style={styles.menuCircleBtn}
                 onPress={() => setShowLanguageModal(true)}
                 activeOpacity={0.8}>
-                <Ionicons name="ellipsis-vertical" size={18} color="#0f172a" />
+                <MoreVertical size={18} color="#0f172a" />
               </TouchableOpacity>
             </View>
           </View>
         </ImageBackground>
       </View>
 
-      <ScrollView
-        style={styles.scrollWrap}
-        contentContainerStyle={[styles.contentContainer, { paddingBottom: insets.bottom + 36 }]}
-        showsVerticalScrollIndicator={false}>
-        {/* 2. Crop Summary Card */}
-        <View style={styles.cropSummaryCard}>
-          {/* Crop Thumbnail */}
-          <Image
-            source={{ uri: currentCrop?.imageUrl || 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=300&q=80' }}
-            style={styles.cropThumb}
-          />
+      {!currentCrop ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+            <Sprout size={44} color="#16a34a" />
+          </View>
+          <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a', marginBottom: 8, textAlign: 'center' }}>
+            {language === 'mr' ? 'कोणतेही पीक निवडलेले नाही' : language === 'hi' ? 'कोई फसल चुनी नहीं गई है' : 'No Crop Selected'}
+          </Text>
+          <Text style={{ fontSize: 13, fontWeight: '500', color: '#64748b', textAlign: 'center', marginBottom: 20, lineHeight: 18 }}>
+            {language === 'mr' ? 'शेतात नवीन पीक जोडा किंवा पिकांची यादी पहा.' : language === 'hi' ? 'खेत में नई फसल जोड़ें या फसल सूची देखें।' : 'Add a crop in My Farm screen or select a crop to view details.'}
+          </Text>
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#16a34a', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 24 }}
+            onPress={() => router.push('/(tabs)/farm')}>
+            <PlusCircle size={18} color="#ffffff" />
+            <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 15 }}>
+              {language === 'mr' ? 'माझे शेत स्क्रीनवर जा' : language === 'hi' ? 'मेरा खेत पर जाएं' : 'Go to My Farm'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <ScrollView
+          style={styles.scrollWrap}
+          contentContainerStyle={[styles.contentContainer, { paddingBottom: insets.bottom + 36 }]}
+          showsVerticalScrollIndicator={false}>
+          {/* 2. Crop Summary Card */}
+          <View style={styles.cropSummaryCard}>
+            {/* Crop Thumbnail */}
+            <Image
+              source={{ uri: currentCrop?.imageUrl || 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=300&q=80' }}
+              style={styles.cropThumb}
+            />
 
           {/* Middle Info */}
           <View style={styles.cropInfoCol}>
@@ -164,14 +223,14 @@ export default function CropDetailsScreen() {
 
             {/* Stage Badge */}
             <View style={styles.stageBadge}>
-              <MaterialCommunityIcons name="shield-check" size={13} color="#16a34a" />
+              <ShieldCheck size={13} color="#16a34a" />
               <Text style={styles.stageBadgeText}>{t.stageVegetative}</Text>
             </View>
           </View>
 
           {/* Edit Crop Button */}
           <TouchableOpacity style={styles.editCropBtn} activeOpacity={0.8} onPress={() => router.push('/(tabs)/farm')}>
-            <Feather name="edit-2" size={13} color="#16a34a" />
+            <Pencil size={13} color="#16a34a" />
             <Text style={styles.editCropText}>{t.editCrop}</Text>
           </TouchableOpacity>
         </View>
@@ -181,7 +240,7 @@ export default function CropDetailsScreen() {
           {/* Plot Area */}
           <View style={styles.metricCard}>
             <View style={[styles.metricIconWrap, { backgroundColor: '#dcfce7' }]}>
-              <MaterialCommunityIcons name="vector-square" size={16} color="#16a34a" />
+              <MapPin size={16} color="#16a34a" />
             </View>
             <Text style={styles.metricLabel}>{t.plotArea}</Text>
             <Text style={styles.metricVal}>{currentCrop ? `${currentCrop.area} ${currentCrop.areaUnit}` : t.plotAreaVal}</Text>
@@ -190,7 +249,7 @@ export default function CropDetailsScreen() {
           {/* Sowing Date */}
           <View style={styles.metricCard}>
             <View style={[styles.metricIconWrap, { backgroundColor: '#ede9fe' }]}>
-              <Ionicons name="calendar-outline" size={16} color="#7c3aed" />
+              <Calendar size={16} color="#7c3aed" />
             </View>
             <Text style={styles.metricLabel}>{t.sowingDateLabel}</Text>
             <Text style={styles.metricVal}>{currentCrop?.sowingDate || t.sowingDateVal}</Text>
@@ -199,7 +258,7 @@ export default function CropDetailsScreen() {
           {/* Expected Harvest */}
           <View style={styles.metricCard}>
             <View style={[styles.metricIconWrap, { backgroundColor: '#dcfce7' }]}>
-              <MaterialCommunityIcons name="sprout" size={16} color="#16a34a" />
+              <Sprout size={16} color="#16a34a" />
             </View>
             <Text style={styles.metricLabel}>{t.expectedHarvest}</Text>
             <Text style={styles.metricVal}>{currentCrop?.expectedHarvestDate || t.expectedHarvestVal}</Text>
@@ -208,7 +267,7 @@ export default function CropDetailsScreen() {
           {/* Days Left */}
           <View style={styles.metricCard}>
             <View style={[styles.metricIconWrap, { backgroundColor: '#d1fae5' }]}>
-              <MaterialCommunityIcons name="calendar-clock" size={16} color="#059669" />
+              <Clock size={16} color="#059669" />
             </View>
             <Text style={styles.metricLabel}>{t.daysLeft}</Text>
             <Text style={[styles.metricVal, { color: '#059669' }]}>
@@ -231,7 +290,7 @@ export default function CropDetailsScreen() {
                 {/* Milestone 1: Vegetative (Active) */}
                 <View style={styles.stepperNode}>
                   <View style={[styles.nodeIconCircle, styles.nodeCircleActive]}>
-                    <MaterialCommunityIcons name="sprout" size={15} color="#ffffff" />
+                    <Sprout size={15} color="#ffffff" />
                   </View>
                   <Text style={[styles.nodeTitle, styles.nodeTitleActive]}>{t.stageVegetativeShort}</Text>
                   <Text style={styles.nodeDates}>1 Jun - 30 Jun</Text>
@@ -240,7 +299,7 @@ export default function CropDetailsScreen() {
                 {/* Milestone 2: Flowering */}
                 <View style={styles.stepperNode}>
                   <View style={[styles.nodeIconCircle, styles.nodeCircleInactive]}>
-                    <MaterialCommunityIcons name="flower" size={15} color="#64748b" />
+                    <Flower2 size={15} color="#64748b" />
                   </View>
                   <Text style={styles.nodeTitle}>{t.stageFloweringShort}</Text>
                   <Text style={styles.nodeDates}>1 Jul - 15 Aug</Text>
@@ -249,7 +308,7 @@ export default function CropDetailsScreen() {
                 {/* Milestone 3: Pod Formation */}
                 <View style={styles.stepperNode}>
                   <View style={[styles.nodeIconCircle, styles.nodeCircleInactive]}>
-                    <MaterialCommunityIcons name="seed" size={14} color="#64748b" />
+                    <Sprout size={14} color="#64748b" />
                   </View>
                   <Text style={styles.nodeTitle}>{t.stagePodFormation}</Text>
                   <Text style={styles.nodeDates}>16 Aug - 10 Sep</Text>
@@ -258,7 +317,7 @@ export default function CropDetailsScreen() {
                 {/* Milestone 4: Maturity */}
                 <View style={styles.stepperNode}>
                   <View style={[styles.nodeIconCircle, styles.nodeCircleInactive]}>
-                    <MaterialCommunityIcons name="barley" size={15} color="#64748b" />
+                    <Sprout size={15} color="#64748b" />
                   </View>
                   <Text style={styles.nodeTitle}>{t.stageMaturity}</Text>
                   <Text style={styles.nodeDates}>11 Sep - 25 Sep</Text>
@@ -317,11 +376,7 @@ export default function CropDetailsScreen() {
                   styles.subTabPill,
                   isActive ? styles.subTabPillActive : styles.subTabPillInactive,
                 ]}>
-                <MaterialCommunityIcons
-                  name={tab.icon}
-                  size={16}
-                  color={isActive ? '#ffffff' : '#64748b'}
-                />
+                {renderSubTabIcon(tab.key, isActive ? '#ffffff' : '#64748b')}
                 <Text
                   style={[
                     styles.subTabPillText,
@@ -340,10 +395,10 @@ export default function CropDetailsScreen() {
           <View style={styles.widgetCard}>
             <View style={styles.widgetHeader}>
               <View style={styles.widgetHeaderLeft}>
-                <MaterialCommunityIcons name="sprout" size={16} color="#16a34a" />
+                <Sprout size={16} color="#16a34a" />
                 <Text style={styles.widgetTitle}>{t.cropHealth}</Text>
               </View>
-              <Ionicons name="help-circle-outline" size={16} color="#94a3b8" />
+              <HelpCircle size={16} color="#94a3b8" />
             </View>
 
             <Text style={styles.healthValue}>{t.healthGood}</Text>
@@ -365,7 +420,7 @@ export default function CropDetailsScreen() {
                 style={styles.widgetHeaderLeft}
                 onPress={() => setShowLocationModal(true)}
                 activeOpacity={0.8}>
-                <Ionicons name="sunny" size={17} color="#f59e0b" />
+                <Sun size={17} color="#f59e0b" />
                 <Text style={styles.widgetTitle} numberOfLines={1}>{t.weatherLabel} <Text style={styles.locSub}>({location.displayLocation})</Text></Text>
               </TouchableOpacity>
             </View>
@@ -378,15 +433,15 @@ export default function CropDetailsScreen() {
 
               <View style={styles.weatherMiniStatsCol}>
                 <View style={styles.miniStatItem}>
-                  <Ionicons name="water" size={11} color="#0284c7" />
+                  <Droplets size={11} color="#0284c7" />
                   <Text style={styles.miniStatVal}>0 mm</Text>
                 </View>
                 <View style={styles.miniStatItem}>
-                  <Ionicons name="water-outline" size={11} color="#0284c7" />
+                  <Droplets size={11} color="#0284c7" />
                   <Text style={styles.miniStatVal}>45%</Text>
                 </View>
                 <View style={styles.miniStatItem}>
-                  <MaterialCommunityIcons name="weather-windy" size={11} color="#64748b" />
+                  <Wind size={11} color="#64748b" />
                   <Text style={styles.miniStatVal}>12 km/h</Text>
                 </View>
               </View>
@@ -400,7 +455,7 @@ export default function CropDetailsScreen() {
           <View style={styles.widgetCard}>
             <View style={styles.widgetHeader}>
               <View style={styles.widgetHeaderLeft}>
-                <MaterialCommunityIcons name="image-filter-hdr" size={16} color="#854d0e" />
+                <Mountain size={16} color="#854d0e" />
                 <Text style={styles.widgetTitle}>{t.soilInformation}</Text>
               </View>
             </View>
@@ -429,7 +484,7 @@ export default function CropDetailsScreen() {
           <View style={styles.widgetCard}>
             <View style={styles.widgetHeader}>
               <View style={styles.widgetHeaderLeft}>
-                <Ionicons name="water" size={16} color="#0284c7" />
+                <Droplets size={16} color="#0284c7" />
                 <Text style={styles.widgetTitle}>{t.irrigationSchedule}</Text>
               </View>
               <TouchableOpacity>
@@ -440,13 +495,13 @@ export default function CropDetailsScreen() {
             <View style={styles.irrigationListCol}>
               {irrigationList.map((item, idx) => (
                 <View key={idx} style={styles.irrigationRow}>
-                  <Ionicons name="calendar-outline" size={13} color="#64748b" />
+                  <Calendar size={13} color="#64748b" />
                   <Text style={styles.irrigationDate}>{item.date}</Text>
                   <Text style={styles.irrigationAmount}>{item.amount}</Text>
                   {item.done ? (
-                    <Ionicons name="checkmark-circle" size={14} color="#16a34a" />
+                    <CheckCircle2 size={14} color="#16a34a" />
                   ) : (
-                    <Ionicons name="time-outline" size={14} color="#94a3b8" />
+                    <Clock size={14} color="#94a3b8" />
                   )}
                 </View>
               ))}
@@ -458,7 +513,7 @@ export default function CropDetailsScreen() {
         <View style={styles.photosSection}>
           <View style={styles.sectionHeaderRow}>
             <View style={styles.widgetHeaderLeft}>
-              <Ionicons name="camera" size={16} color="#16a34a" />
+              <Camera size={16} color="#16a34a" />
               <Text style={styles.sectionTitle}>{t.recentPhotos}</Text>
             </View>
             <TouchableOpacity>
@@ -483,14 +538,14 @@ export default function CropDetailsScreen() {
           <TouchableOpacity style={styles.bottomCard} activeOpacity={0.8}>
             <View style={styles.bottomCardHeader}>
               <View style={styles.widgetHeaderLeft}>
-                <MaterialCommunityIcons name="shield-check" size={16} color="#16a34a" />
+                <ShieldCheck size={16} color="#16a34a" />
                 <Text style={styles.bottomCardTitle}>{t.pestDiseaseStatus}</Text>
               </View>
-              <Ionicons name="chevron-forward" size={15} color="#94a3b8" />
+              <ChevronRight size={15} color="#94a3b8" />
             </View>
 
             <View style={styles.statusBadgeRow}>
-              <Ionicons name="checkmark-circle" size={16} color="#16a34a" />
+              <CheckCircle2 size={16} color="#16a34a" />
               <Text style={styles.statusBadgeText}>{t.noMajorIssues}</Text>
             </View>
 
@@ -504,11 +559,11 @@ export default function CropDetailsScreen() {
             <View style={styles.bottomCardHeader}>
               <View style={styles.widgetHeaderLeft}>
                 <View style={styles.bulbIconWrap}>
-                  <Ionicons name="bulb" size={14} color="#f59e0b" />
+                  <Lightbulb size={14} color="#f59e0b" />
                 </View>
                 <Text style={styles.bottomCardTitle}>{t.expertAdvisory}</Text>
               </View>
-              <Ionicons name="chevron-forward" size={15} color="#94a3b8" />
+              <ChevronRight size={15} color="#94a3b8" />
             </View>
 
             <Text style={styles.bottomCardDescAdvisory}>
@@ -517,6 +572,7 @@ export default function CropDetailsScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+      )}
 
       {/* Language Selection Modal */}
       <Modal
@@ -531,11 +587,11 @@ export default function CropDetailsScreen() {
           <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
             <View style={styles.modalHeaderRow}>
               <View style={styles.modalTitleWrap}>
-                <Ionicons name="globe-outline" size={20} color="#16a34a" />
+                <Globe size={20} color="#16a34a" />
                 <Text style={styles.modalTitle}>{t.selectLanguageModalTitle}</Text>
               </View>
               <TouchableOpacity onPress={() => setShowLanguageModal(false)} style={styles.modalCloseBtn}>
-                <Ionicons name="close" size={20} color="#64748b" />
+                <X size={20} color="#64748b" />
               </TouchableOpacity>
             </View>
 
@@ -566,7 +622,7 @@ export default function CropDetailsScreen() {
                       </View>
                     </View>
                     {isSelected && (
-                      <Ionicons name="checkmark-circle" size={20} color="#16a34a" />
+                      <CheckCircle2 size={20} color="#16a34a" />
                     )}
                   </TouchableOpacity>
                 );

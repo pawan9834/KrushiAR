@@ -12,7 +12,25 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import {
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  Globe,
+  Plus,
+  MoreVertical,
+  Clock,
+  Check,
+  Calendar,
+  Home,
+  Sprout,
+  Camera,
+  Store,
+  User,
+  X,
+  CheckCircle2,
+  PlusCircle,
+} from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage, Language } from '@/context/LanguageContext';
@@ -238,7 +256,7 @@ export default function FarmTasksScreen() {
     if (priority === 'high') {
       return (
         <View style={[styles.priorityBadge, styles.priorityBadgeHigh]}>
-          <Ionicons name="arrow-up" size={11} color="#dc2626" />
+          <ArrowUp size={11} color="#dc2626" />
           <Text style={[styles.priorityBadgeText, styles.priorityTextHigh]}>{t.priorityHigh}</Text>
         </View>
       );
@@ -252,7 +270,7 @@ export default function FarmTasksScreen() {
     }
     return (
       <View style={[styles.priorityBadge, styles.priorityBadgeLow]}>
-        <Ionicons name="arrow-down" size={11} color="#16a34a" />
+        <ArrowDown size={11} color="#16a34a" />
         <Text style={[styles.priorityBadgeText, styles.priorityTextLow]}>{t.priorityLow}</Text>
       </View>
     );
@@ -273,7 +291,7 @@ export default function FarmTasksScreen() {
                 style={styles.backBtn}
                 onPress={() => router.back()}
                 activeOpacity={0.7}>
-                <Ionicons name="arrow-back" size={24} color="#0f172a" />
+                <ArrowLeft size={24} color="#0f172a" />
               </TouchableOpacity>
 
               {/* Title & Subtitle */}
@@ -287,7 +305,7 @@ export default function FarmTasksScreen() {
                 style={styles.langPillBtn}
                 onPress={() => setShowLanguageModal(true)}
                 activeOpacity={0.8}>
-                <Ionicons name="globe-outline" size={15} color="#16a34a" />
+                <Globe size={15} color="#16a34a" />
                 <Text style={styles.langPillText}>
                   {language === 'en' ? 'EN' : language === 'mr' ? 'मराठी' : 'हिंदी'}
                 </Text>
@@ -298,7 +316,7 @@ export default function FarmTasksScreen() {
                 style={styles.addCircleBtn}
                 onPress={() => setShowAddModal(true)}
                 activeOpacity={0.8}>
-                <Ionicons name="add" size={22} color="#ffffff" />
+                <Plus size={22} color="#ffffff" />
               </TouchableOpacity>
 
               {/* 3-Dots Menu Button */}
@@ -306,7 +324,7 @@ export default function FarmTasksScreen() {
                 style={styles.menuCircleBtn}
                 onPress={() => setShowLanguageModal(true)}
                 activeOpacity={0.8}>
-                <Ionicons name="ellipsis-vertical" size={18} color="#0f172a" />
+                <MoreVertical size={18} color="#0f172a" />
               </TouchableOpacity>
             </View>
           </View>
@@ -446,7 +464,7 @@ export default function FarmTasksScreen() {
                   {/* Time & Priority Row */}
                   <View style={styles.metaRow}>
                     <View style={styles.timeWrap}>
-                      <Ionicons name="time-outline" size={13} color="#64748b" />
+                      <Clock size={13} color="#64748b" />
                       <Text style={styles.timeText}>{item.time}</Text>
                     </View>
                     {renderPriorityBadge(item.priority)}
@@ -462,11 +480,11 @@ export default function FarmTasksScreen() {
                     ]}
                     onPress={() => toggleTaskCompletion(item.id)}
                     activeOpacity={0.8}>
-                    {isChecked && <Ionicons name="checkmark" size={16} color="#ffffff" />}
+                    {isChecked && <Check size={16} color="#ffffff" strokeWidth={3} />}
                   </TouchableOpacity>
 
                   <TouchableOpacity style={styles.taskDotsBtn} activeOpacity={0.7}>
-                    <Ionicons name="ellipsis-vertical" size={16} color="#94a3b8" />
+                    <MoreVertical size={16} color="#94a3b8" />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -507,12 +525,12 @@ export default function FarmTasksScreen() {
                   <View style={styles.metaRowUpcoming}>
                     {item.dateStr && (
                       <View style={styles.dateWrap}>
-                        <Ionicons name="calendar-outline" size={12} color="#64748b" />
+                        <Calendar size={12} color="#64748b" />
                         <Text style={styles.dateText}>{item.dateStr}</Text>
                       </View>
                     )}
                     <View style={styles.timeWrap}>
-                      <Ionicons name="time-outline" size={12} color="#64748b" />
+                      <Clock size={12} color="#64748b" />
                       <Text style={styles.timeText}>{item.time}</Text>
                     </View>
                     {renderPriorityBadge(item.priority)}
@@ -528,11 +546,11 @@ export default function FarmTasksScreen() {
                     ]}
                     onPress={() => toggleTaskCompletion(item.id)}
                     activeOpacity={0.8}>
-                    {isChecked && <Ionicons name="checkmark" size={16} color="#ffffff" />}
+                    {isChecked && <Check size={16} color="#ffffff" strokeWidth={3} />}
                   </TouchableOpacity>
 
                   <TouchableOpacity style={styles.taskDotsBtn} activeOpacity={0.7}>
-                    <Ionicons name="ellipsis-vertical" size={16} color="#94a3b8" />
+                    <MoreVertical size={16} color="#94a3b8" />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -547,7 +565,7 @@ export default function FarmTasksScreen() {
           style={styles.navItem}
           onPress={() => router.push('/(tabs)')}
           activeOpacity={0.7}>
-          <Ionicons name="home-outline" size={22} color="#64748b" />
+          <Home size={22} color="#64748b" />
           <Text style={styles.navLabel}>{t.tabHome}</Text>
         </TouchableOpacity>
 
@@ -555,7 +573,7 @@ export default function FarmTasksScreen() {
           style={styles.navItem}
           onPress={() => router.push('/(tabs)/farm')}
           activeOpacity={0.7}>
-          <MaterialCommunityIcons name="sprout-outline" size={22} color="#16a34a" />
+          <Sprout size={22} color="#16a34a" />
           <Text style={[styles.navLabel, { color: '#16a34a', fontWeight: '700' }]}>{t.tabFarm}</Text>
         </TouchableOpacity>
 
@@ -565,7 +583,7 @@ export default function FarmTasksScreen() {
             style={styles.fabBtn}
             onPress={() => router.push('/(tabs)/scan')}
             activeOpacity={0.85}>
-            <Ionicons name="camera" size={24} color="#ffffff" />
+            <Camera size={24} color="#ffffff" />
           </TouchableOpacity>
           <Text style={styles.fabLabel}>{t.tabScan}</Text>
         </View>
@@ -574,7 +592,7 @@ export default function FarmTasksScreen() {
           style={styles.navItem}
           onPress={() => router.push('/(tabs)/market')}
           activeOpacity={0.7}>
-          <Ionicons name="storefront-outline" size={22} color="#64748b" />
+          <Store size={22} color="#64748b" />
           <Text style={styles.navLabel}>{t.tabMarket}</Text>
         </TouchableOpacity>
 
@@ -582,7 +600,7 @@ export default function FarmTasksScreen() {
           style={styles.navItem}
           onPress={() => router.push('/(tabs)/settings')}
           activeOpacity={0.7}>
-          <Ionicons name="person-outline" size={22} color="#64748b" />
+          <User size={22} color="#64748b" />
           <Text style={styles.navLabel}>{t.tabProfile}</Text>
         </TouchableOpacity>
       </View>
@@ -600,11 +618,11 @@ export default function FarmTasksScreen() {
           <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
             <View style={styles.modalHeaderRow}>
               <View style={styles.modalTitleWrap}>
-                <Ionicons name="globe-outline" size={20} color="#16a34a" />
+                <Globe size={20} color="#16a34a" />
                 <Text style={styles.modalTitle}>{t.selectLanguageModalTitle}</Text>
               </View>
               <TouchableOpacity onPress={() => setShowLanguageModal(false)} style={styles.modalCloseBtn}>
-                <Ionicons name="close" size={20} color="#64748b" />
+                <X size={20} color="#64748b" />
               </TouchableOpacity>
             </View>
 
@@ -635,7 +653,7 @@ export default function FarmTasksScreen() {
                       </View>
                     </View>
                     {isSelected && (
-                      <Ionicons name="checkmark-circle" size={20} color="#16a34a" />
+                      <CheckCircle2 size={20} color="#16a34a" />
                     )}
                   </TouchableOpacity>
                 );
@@ -658,11 +676,11 @@ export default function FarmTasksScreen() {
           <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
             <View style={styles.modalHeaderRow}>
               <View style={styles.modalTitleWrap}>
-                <Ionicons name="add-circle" size={22} color="#16a34a" />
+                <PlusCircle size={22} color="#16a34a" />
                 <Text style={styles.modalTitle}>{t.newTaskTitle}</Text>
               </View>
               <TouchableOpacity onPress={() => setShowAddModal(false)} style={styles.modalCloseBtn}>
-                <Ionicons name="close" size={20} color="#64748b" />
+                <X size={20} color="#64748b" />
               </TouchableOpacity>
             </View>
 

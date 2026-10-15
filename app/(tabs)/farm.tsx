@@ -6,11 +6,34 @@ import {
   getFarmerProfile,
   getExpenseSummary,
   addCrop,
+  deleteCrop,
   Crop,
   FarmPlot,
   FarmerProfile,
 } from '@/services/diaryStorage';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import {
+  MapPin,
+  ChevronDown,
+  ChevronRight,
+  Bell,
+  Volume2,
+  Square,
+  PlusCircle,
+  ShieldCheck,
+  Droplets,
+  Sprout,
+  CheckSquare,
+  Trash2,
+  Lightbulb,
+  Calendar,
+  Camera,
+  Map,
+  Package,
+  Phone,
+  XCircle,
+  Sparkles,
+  Mountain,
+} from 'lucide-react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -26,14 +49,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-// Safe dynamic Speech module
-let Speech: typeof import('expo-speech') | null = null;
-try {
-  Speech = require('expo-speech');
-} catch (e) {
-  // Graceful fallback
-}
+import * as Speech from 'expo-speech';
 
 export default function MyFarmScreen() {
   const insets = useSafeAreaInsets();
@@ -125,24 +141,85 @@ export default function MyFarmScreen() {
     }
   };
 
+  const getCropImage = (name: string, customUrl?: string) => {
+    if (customUrl && customUrl.startsWith('http')) return customUrl;
+    const n = (name || '').toLowerCase();
+    if (n.includes('टोमॅटो') || n.includes('tomato')) {
+      return 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=400&q=80';
+    }
+    if (n.includes('कापूस') || n.includes('cotton')) {
+      return 'https://images.unsplash.com/photo-1606041008023-472dfb5e530f?w=400&q=80';
+    }
+    if (n.includes('कांदा') || n.includes('onion')) {
+      return 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=400&q=80';
+    }
+    if (n.includes('मका') || n.includes('maize') || n.includes('corn')) {
+      return 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=400&q=80';
+    }
+    if (n.includes('गहू') || n.includes('wheat')) {
+      return 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=400&q=80';
+    }
+    if (n.includes('सोयाबीन') || n.includes('soybean')) {
+      return 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&q=80';
+    }
+    return 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&q=80';
+  };
+
+  const handleDeleteCrop = (cropId: string, cropName: string) => {
+    Alert.alert(
+      language === 'mr' ? 'पीक हटवा' : language === 'hi' ? 'फसल हटाएं' : 'Delete Crop',
+      language === 'mr'
+        ? `तुम्हाला खात्री आहे की "${cropName}" हे पीक हटवायचे आहे?`
+        : language === 'hi'
+          ? `क्या आप वाकई "${cropName}" को हटाना चाहते हैं?`
+          : `Are you sure you want to delete "${cropName}"?`,
+      [
+        { text: language === 'mr' ? 'रद्द करा' : language === 'hi' ? 'रद्द करें' : 'Cancel', style: 'cancel' },
+        {
+          text: language === 'mr' ? 'हटवा' : language === 'hi' ? 'हटाएं' : 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteCrop(cropId);
+              await loadFarmData();
+            } catch (err) {
+              console.error('Failed to delete crop:', err);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleSaveCrop = async () => {
     if (!newCropName.trim()) {
       Alert.alert(language === 'mr' ? 'कृपया पिकाचे नाव टाका' : 'Please enter crop name');
       return;
     }
     try {
+      const chosenImage = getCropImage(newCropName.trim());
       await addCrop({
         name: newCropName.trim(),
         variety: newCropVariety.trim() || (language === 'mr' ? 'सुधारित जात' : 'Standard'),
         area: newCropArea.trim() || '१.०',
-        areaUnit: farmerProfile?.areaUnit || 'एकर',
+        areaUnit: farmerProfile?.areaUnit || (language === 'en' ? 'Acres' : 'एकर'),
         sowingDate: new Date().toISOString().split('T')[0],
         status: 'active',
         plotName: plots[0]?.name || (language === 'mr' ? 'शेताचा तुकडा १' : 'Plot 1'),
-        imageUrl: 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&q=80',
+        imageUrl: chosenImage,
       });
+      if (Speech) {
+        const spokenMsg =
+          language === 'mr'
+            ? `${newCropName.trim()} पीक शेतात यशस्वीपणे जतन झाले आहे.`
+            : language === 'hi'
+              ? `${newCropName.trim()} फसल सफलतापूर्वक खेत में दर्ज हो गई है।`
+              : `${newCropName.trim()} crop saved successfully.`;
+        Speech.speak(spokenMsg, { language: language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-IN' });
+      }
       setNewCropName('');
       setNewCropVariety('');
+      setNewCropArea('१.०');
       setShowAddCropModal(false);
       await loadFarmData();
     } catch (err) {
@@ -150,7 +227,14 @@ export default function MyFarmScreen() {
     }
   };
 
-  const totalAreaText = farmerProfile?.totalArea || (plots.reduce((acc, p) => acc + (parseFloat(p.area) || 0), 0) || 5.5).toString();
+  const calculatedCropArea = crops.reduce((acc, c) => acc + (parseFloat(c.area) || 0), 0);
+  const calculatedPlotArea = plots.reduce((acc, p) => acc + (parseFloat(p.area) || 0), 0);
+  const totalAreaVal = farmerProfile?.totalArea
+    ? parseFloat(farmerProfile.totalArea)
+    : calculatedPlotArea > 0
+      ? calculatedPlotArea
+      : calculatedCropArea;
+  const totalAreaText = totalAreaVal > 0 ? totalAreaVal.toFixed(1).replace(/\.0$/, '') : '०';
   const areaUnitText = farmerProfile?.areaUnit || (language === 'en' ? 'Acres' : 'एकर');
 
   const farmSpokenSummary =
@@ -161,9 +245,9 @@ export default function MyFarmScreen() {
           ? `मेरा खेत रिपोर्ट: आपका कुल खेत ${totalAreaText} ${areaUnitText} है और वर्तमान में ${crops.length} फसलें हैं: ${crops.map((c) => c.name).join(', ')}।`
           : `My Farm Report: Total land is ${totalAreaText} ${areaUnitText} with ${crops.length} active crops: ${crops.map((c) => c.name).join(', ')}.`
       : language === 'mr'
-        ? 'माझे शेत: सध्या कोणतेही पीक नोंदवलेले नाही. नवीन पीक जोडण्यासाठी वरील बटणावर दाबा.'
+        ? 'माझे शेत: सध्या कोणतेही पीक नोंदवलेले नाही. नवीन पीक जोडण्यासाठी खालील बटणावर दाबा.'
         : language === 'hi'
-          ? 'मेरा खेत: अभी कोई फसल दर्ज नहीं है। नई फसल जोड़ने के लिए बटन दबाएं।'
+          ? 'मेरा खेत: अभी कोई फसल दर्ज नहीं है। नई फसल जोड़ने के लिए नीचे दिए बटन को दबाएं।'
           : 'My Farm: No crops added yet. Tap Add Crop to record your first crop.';
 
   // Dynamically formatted Crops list derived from storage
@@ -179,7 +263,7 @@ export default function MyFarmScreen() {
     progress: '55%',
     progressColor: '#15803d',
     daysLeft: language === 'mr' ? 'काढणी लवकरच' : language === 'hi' ? 'कटाई जल्द' : 'Harvest soon',
-    sowingDate: c.sowingDate || '२०२६-०६-०१',
+    sowingDate: c.sowingDate || new Date().toISOString().split('T')[0],
     advice:
       language === 'mr'
         ? 'मातीत ओलावा तपासा, आवश्यकतेनुसार पाणी व खत द्या.'
@@ -187,7 +271,7 @@ export default function MyFarmScreen() {
           ? 'मिट्टी में नमी जांचें, आवश्यक अनुसार सिंचाई करें।'
           : 'Check soil moisture, irrigate as required.',
     spokenText: `${c.name}: ${c.area} ${c.areaUnit || areaUnitText}. जात ${c.variety}.`,
-    image: c.imageUrl || 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&q=80',
+    image: getCropImage(c.name, c.imageUrl),
     totalExpenses: c.totalExpenses || 0,
   }));
 
@@ -210,7 +294,7 @@ export default function MyFarmScreen() {
         <View style={styles.brandCol}>
           <View style={styles.titleRow}>
             <View style={styles.headerIconCircle}>
-              <MaterialCommunityIcons name="image-filter-hdr" size={24} color="#ffffff" />
+              <Mountain size={24} color="#ffffff" strokeWidth={2.2} />
             </View>
             <View>
               <Text style={styles.headerTitle}>
@@ -232,16 +316,16 @@ export default function MyFarmScreen() {
             style={styles.locationChip}
             onPress={() => setShowLocationModal(true)}
             activeOpacity={0.7}>
-            <Ionicons name="location-sharp" size={15} color="#15803d" />
+            <MapPin size={15} color="#15803d" />
             <Text style={styles.locationText}>{location.displayCity}</Text>
-            <Ionicons name="chevron-down" size={12} color="#0f172a" />
+            <ChevronDown size={12} color="#0f172a" />
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.bellBtn}
             onPress={() => router.push('/notifications')}
             activeOpacity={0.7}>
-            <Ionicons name="notifications" size={20} color="#0f172a" />
+            <Bell size={20} color="#0f172a" strokeWidth={2} />
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{crops.length}</Text>
             </View>
@@ -259,11 +343,11 @@ export default function MyFarmScreen() {
         activeOpacity={0.85}>
         <View style={styles.audioHeroLeft}>
           <View style={styles.audioHeroBadge}>
-            <Ionicons
-              name={activeSpeakingKey === 'farmSummary' ? 'volume-high' : 'sparkles'}
-              size={14}
-              color="#ffffff"
-            />
+            {activeSpeakingKey === 'farmSummary' ? (
+              <Volume2 size={14} color="#ffffff" />
+            ) : (
+              <Sparkles size={14} color="#ffffff" />
+            )}
             <Text style={styles.audioHeroBadgeText}>
               {language === 'mr' ? 'व्हॉइस अहवाल' : language === 'hi' ? 'वॉइस रिपोर्ट' : 'Voice Report'}
             </Text>
@@ -283,11 +367,11 @@ export default function MyFarmScreen() {
         </View>
 
         <View style={styles.audioPlayCircle}>
-          <Ionicons
-            name={activeSpeakingKey === 'farmSummary' ? 'stop' : 'volume-high'}
-            size={28}
-            color={activeSpeakingKey === 'farmSummary' ? '#dc2626' : '#15803d'}
-          />
+          {activeSpeakingKey === 'farmSummary' ? (
+            <Square size={24} color="#dc2626" fill="#dc2626" />
+          ) : (
+            <Volume2 size={26} color="#15803d" strokeWidth={2.2} />
+          )}
         </View>
       </TouchableOpacity>
 
@@ -361,7 +445,7 @@ export default function MyFarmScreen() {
             style={styles.addCropQuickBtn}
             onPress={() => setShowAddCropModal(true)}
             activeOpacity={0.8}>
-            <Ionicons name="add-circle" size={18} color="#ffffff" />
+            <PlusCircle size={18} color="#ffffff" />
             <Text style={styles.addCropQuickText}>
               {language === 'mr' ? '+ नवीन पीक' : language === 'hi' ? '+ नई फसल' : '+ Add Crop'}
             </Text>
@@ -371,7 +455,7 @@ export default function MyFarmScreen() {
         {/* 3 Quick Farm Health Metrics */}
         <View style={styles.farmMetricsRow}>
           <View style={styles.farmMetricBox}>
-            <Ionicons name="shield-checkmark" size={18} color="#15803d" />
+            <ShieldCheck size={18} color="#15803d" strokeWidth={2.2} />
             <Text style={styles.farmMetricVal}>
               {language === 'mr' ? 'उत्कृष्ट' : language === 'hi' ? 'उत्कृष्ट' : 'Good'}
             </Text>
@@ -381,7 +465,7 @@ export default function MyFarmScreen() {
           </View>
           <View style={styles.farmMetricDivider} />
           <View style={styles.farmMetricBox}>
-            <Ionicons name="water" size={18} color="#0284c7" />
+            <Droplets size={18} color="#0284c7" strokeWidth={2.2} />
             <Text style={styles.farmMetricVal}>६२%</Text>
             <Text style={styles.farmMetricLbl}>
               {language === 'mr' ? 'ओलावा' : language === 'hi' ? 'नमी' : 'Moisture'}
@@ -389,7 +473,7 @@ export default function MyFarmScreen() {
           </View>
           <View style={styles.farmMetricDivider} />
           <View style={styles.farmMetricBox}>
-            <MaterialCommunityIcons name="sprout" size={18} color="#15803d" />
+            <Sprout size={18} color="#15803d" strokeWidth={2.2} />
             <Text style={styles.farmMetricVal}>{crops.length} {language === 'mr' ? 'पिके' : language === 'hi' ? 'फसलें' : 'Crops'}</Text>
             <Text style={styles.farmMetricLbl}>
               {language === 'mr' ? 'लागवड' : language === 'hi' ? 'फसलें' : 'Active'}
@@ -415,128 +499,167 @@ export default function MyFarmScreen() {
               style={styles.tasksBtnTop}
               onPress={() => router.push('/tasks')}
               activeOpacity={0.7}>
-              <Ionicons name="checkbox-outline" size={16} color="#15803d" />
+              <CheckSquare size={16} color="#15803d" />
               <Text style={styles.tasksBtnTopText}>
                 {language === 'mr' ? 'कामे तपासा' : language === 'hi' ? 'कार्य देखें' : 'Tasks'}
               </Text>
             </TouchableOpacity>
           </View>
 
-          {/* Full-width High-Contrast Crop Cards */}
-          <View style={styles.cropsCardsStack}>
-            {cropsList.map((crop) => {
-              const isSpeakingThisCrop = activeSpeakingKey === `crop_${crop.id}`;
-              return (
-                <View key={crop.id} style={styles.farmerCropCard}>
-                  {/* Top Row: Photo + Name + Acre + Audio Button */}
-                  <View style={styles.cropCardTopRow}>
-                    <Image source={{ uri: crop.image }} style={styles.cropBigPhoto} />
+          {/* Crops List or Empty State */}
+          {cropsList.length === 0 ? (
+            <View style={styles.emptyCardContainer}>
+              <View style={styles.emptyIconCircle}>
+                <Sprout size={40} color="#15803d" strokeWidth={2} />
+              </View>
+              <Text style={styles.emptyCardTitle}>
+                {language === 'mr'
+                  ? 'अद्याप कोणतेही पीक जोडलेले नाही'
+                  : language === 'hi'
+                    ? 'अभी कोई फसल नहीं जोड़ी गई है'
+                    : 'No Crops Added Yet'}
+              </Text>
+              <Text style={styles.emptyCardSub}>
+                {language === 'mr'
+                  ? 'तुमच्या शेतातील पिकांची नोंद करा आणि वाढ, पाणी, खत व खर्चाचे व्यवस्थापन ठेवा.'
+                  : language === 'hi'
+                    ? 'अपने खेत की फसलें जोड़ें और वृद्धि, पानी, खाद व खर्च का प्रबंधन करें।'
+                    : 'Add your farm crops to track growth stages, irrigation schedules, and expenses.'}
+              </Text>
+              <TouchableOpacity
+                style={styles.emptyCardBtn}
+                onPress={() => setShowAddCropModal(true)}
+                activeOpacity={0.8}>
+                <PlusCircle size={18} color="#ffffff" />
+                <Text style={styles.emptyCardBtnText}>
+                  {language === 'mr' ? '+ नवीन पीक जोडा' : language === 'hi' ? '+ नई फसल जोड़ें' : '+ Add Crop'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.cropsCardsStack}>
+              {cropsList.map((crop) => {
+                const isSpeakingThisCrop = activeSpeakingKey === `crop_${crop.id}`;
+                return (
+                  <View key={crop.id} style={styles.farmerCropCard}>
+                    {/* Top Row: Photo + Name + Acre + Delete Button */}
+                    <View style={styles.cropCardTopRow}>
+                      <Image source={{ uri: crop.image }} style={styles.cropBigPhoto} />
 
-                    <View style={styles.cropDetailsCenter}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Text style={styles.cropBigName}>{crop.name}</Text>
-                        <Text style={styles.cropAreaBadgeText}>{crop.area}</Text>
+                      <View style={styles.cropDetailsCenter}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <Text style={styles.cropBigName}>{crop.name}</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={styles.cropAreaBadgeText}>{crop.area}</Text>
+                            <TouchableOpacity
+                              onPress={() => handleDeleteCrop(crop.id, crop.name)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              style={styles.cropDeleteBtn}>
+                              <Trash2 size={17} color="#ef4444" />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                        <Text style={styles.cropVarietyLabel}>जात: {crop.variety}</Text>
+                        <Text style={styles.cropPlotLabel}>📍 {crop.plotName}</Text>
                       </View>
-                      <Text style={styles.cropVarietyLabel}>जात: {crop.variety}</Text>
-                      <Text style={styles.cropPlotLabel}>📍 {crop.plotName}</Text>
                     </View>
-                  </View>
 
-                  {/* Stage & Harvest Countdown Row */}
-                  <View style={styles.cropBadgesRow}>
-                    <View style={[styles.stagePill, { backgroundColor: crop.stageBg }]}>
-                      <Text style={[styles.stagePillText, { color: crop.stageColor }]}>
-                        ● {crop.stage}
+                    {/* Stage & Harvest Countdown Row */}
+                    <View style={styles.cropBadgesRow}>
+                      <View style={[styles.stagePill, { backgroundColor: crop.stageBg }]}>
+                        <Text style={[styles.stagePillText, { color: crop.stageColor }]}>
+                          ● {crop.stage}
+                        </Text>
+                      </View>
+
+                      <View style={styles.harvestPill}>
+                        <Text style={styles.harvestPillText}>⏳ {crop.daysLeft}</Text>
+                      </View>
+                    </View>
+
+                    {/* Visual Growth Progress Bar */}
+                    <View style={styles.growthProgressContainer}>
+                      <View style={styles.growthLabelsRow}>
+                        <Text style={styles.growthLabelLeft}>
+                          {language === 'mr' ? 'पिकाची वाढ (Growth):' : language === 'hi' ? 'फसल वृद्धि:' : 'Crop Growth:'}
+                        </Text>
+                        <Text style={[styles.growthLabelRight, { color: crop.progressColor }]}>
+                          {crop.progress}
+                        </Text>
+                      </View>
+                      <View style={styles.growthTrack}>
+                        <View
+                          style={[
+                            styles.growthFill,
+                            { width: crop.progress as any, backgroundColor: crop.progressColor },
+                          ]}
+                        />
+                      </View>
+                    </View>
+
+                    {/* Farmer Action Advice Box */}
+                    <View style={styles.cropAdviceBox}>
+                      <Lightbulb size={16} color="#15803d" />
+                      <Text style={styles.cropAdviceText}>
+                        <Text style={{ fontWeight: '800' }}>
+                          {language === 'mr' ? 'सल्ला: ' : language === 'hi' ? 'सलाह: ' : 'Advice: '}
+                        </Text>
+                        {crop.advice}
                       </Text>
                     </View>
 
-                    <View style={styles.harvestPill}>
-                      <Text style={styles.harvestPillText}>⏳ {crop.daysLeft}</Text>
-                    </View>
-                  </View>
-
-                  {/* Visual Growth Progress Bar */}
-                  <View style={styles.growthProgressContainer}>
-                    <View style={styles.growthLabelsRow}>
-                      <Text style={styles.growthLabelLeft}>
-                        {language === 'mr' ? 'पिकाची वाढ (Growth):' : language === 'hi' ? 'फसल वृद्धि:' : 'Crop Growth:'}
-                      </Text>
-                      <Text style={[styles.growthLabelRight, { color: crop.progressColor }]}>
-                        {crop.progress}
-                      </Text>
-                    </View>
-                    <View style={styles.growthTrack}>
-                      <View
+                    {/* Bottom Action Buttons: 🔊 Listen, 📸 Scan, ℹ️ Details */}
+                    <View style={styles.cropActionButtonsRow}>
+                      {/* 1-Tap Audio Button */}
+                      <TouchableOpacity
                         style={[
-                          styles.growthFill,
-                          { width: crop.progress as any, backgroundColor: crop.progressColor },
+                          styles.cropAudioBtn,
+                          isSpeakingThisCrop && styles.cropAudioBtnActive,
                         ]}
-                      />
+                        onPress={() => handleToggleSpeak(`crop_${crop.id}`, crop.spokenText)}
+                        activeOpacity={0.7}>
+                        {isSpeakingThisCrop ? (
+                          <Square size={16} color="#ffffff" fill="#ffffff" />
+                        ) : (
+                          <Volume2 size={18} color="#15803d" />
+                        )}
+                        <Text
+                          style={[
+                            styles.cropAudioBtnText,
+                            isSpeakingThisCrop && styles.cropAudioBtnTextActive,
+                          ]}>
+                          {isSpeakingThisCrop
+                            ? language === 'mr' ? 'थांबवा' : language === 'hi' ? 'रोकें' : 'Stop'
+                            : language === 'mr' ? '🔊 ऐका' : language === 'hi' ? '🔊 सुनें' : '🔊 Listen'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {/* Scan Disease Button */}
+                      <TouchableOpacity
+                        style={styles.cropScanBtn}
+                        onPress={() => router.push('/(tabs)/scan')}
+                        activeOpacity={0.7}>
+                        <Camera size={16} color="#15803d" strokeWidth={2} />
+                        <Text style={styles.cropScanBtnText}>
+                          {language === 'mr' ? 'रोग निदान' : language === 'hi' ? 'रोग जांच' : 'Scan'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {/* View Details Button */}
+                      <TouchableOpacity
+                        style={styles.cropDetailsBtn}
+                        onPress={() => router.push({ pathname: '/crop-details', params: { cropId: crop.id } })}
+                        activeOpacity={0.7}>
+                        <Text style={styles.cropDetailsBtnText}>
+                          {language === 'mr' ? 'माहिती →' : language === 'hi' ? 'विवरण →' : 'Details →'}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
                   </View>
-
-                  {/* Farmer Action Advice Box */}
-                  <View style={styles.cropAdviceBox}>
-                    <MaterialCommunityIcons name="lightbulb-on" size={16} color="#15803d" />
-                    <Text style={styles.cropAdviceText}>
-                      <Text style={{ fontWeight: '800' }}>
-                        {language === 'mr' ? 'सल्ला: ' : language === 'hi' ? 'सलाह: ' : 'Advice: '}
-                      </Text>
-                      {crop.advice}
-                    </Text>
-                  </View>
-
-                  {/* Bottom Action Buttons: 🔊 Listen, 📸 Scan, ℹ️ Details */}
-                  <View style={styles.cropActionButtonsRow}>
-                    {/* 1-Tap Audio Button */}
-                    <TouchableOpacity
-                      style={[
-                        styles.cropAudioBtn,
-                        isSpeakingThisCrop && styles.cropAudioBtnActive,
-                      ]}
-                      onPress={() => handleToggleSpeak(`crop_${crop.id}`, crop.spokenText)}
-                      activeOpacity={0.7}>
-                      <Ionicons
-                        name={isSpeakingThisCrop ? 'stop-circle' : 'volume-high'}
-                        size={18}
-                        color={isSpeakingThisCrop ? '#ffffff' : '#15803d'}
-                      />
-                      <Text
-                        style={[
-                          styles.cropAudioBtnText,
-                          isSpeakingThisCrop && styles.cropAudioBtnTextActive,
-                        ]}>
-                        {isSpeakingThisCrop
-                          ? language === 'mr' ? 'थांबवा' : language === 'hi' ? 'रोकें' : 'Stop'
-                          : language === 'mr' ? '🔊 ऐका' : language === 'hi' ? '🔊 सुनें' : '🔊 Listen'}
-                      </Text>
-                    </TouchableOpacity>
-
-                    {/* Scan Disease Button */}
-                    <TouchableOpacity
-                      style={styles.cropScanBtn}
-                      onPress={() => router.push('/(tabs)/scan')}
-                      activeOpacity={0.7}>
-                      <Ionicons name="camera" size={16} color="#15803d" />
-                      <Text style={styles.cropScanBtnText}>
-                        {language === 'mr' ? 'रोग निदान' : language === 'hi' ? 'रोग जांच' : 'Scan'}
-                      </Text>
-                    </TouchableOpacity>
-
-                    {/* View Details Button */}
-                    <TouchableOpacity
-                      style={styles.cropDetailsBtn}
-                      onPress={() => router.push('/crop-details')}
-                      activeOpacity={0.7}>
-                      <Text style={styles.cropDetailsBtnText}>
-                        {language === 'mr' ? 'माहिती →' : language === 'hi' ? 'विवरण →' : 'Details →'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
+                );
+              })}
+            </View>
+          )}
         </View>
       )}
 
@@ -554,82 +677,115 @@ export default function MyFarmScreen() {
             </View>
           </View>
 
-          {/* Interactive Visual Plot Tiles */}
-          <View style={styles.plotsGridContainer}>
-            {cropsList.map((crop) => {
-              const isSelected = selectedPlotId === crop.id;
-              return (
-                <TouchableOpacity
-                  key={crop.id}
-                  style={[
-                    styles.plotTileCard,
-                    isSelected && styles.plotTileCardSelected,
-                  ]}
-                  onPress={() => setSelectedPlotId(crop.id)}
-                  activeOpacity={0.8}>
-                  <View style={[styles.plotCropIconCircle, { backgroundColor: crop.stageBg }]}>
-                    <MaterialCommunityIcons
-                      name="sprout"
-                      size={24}
-                      color={crop.stageColor}
-                    />
-                  </View>
-
-                  <Text style={styles.plotTileName}>{crop.name}</Text>
-                  <Text style={styles.plotTileArea}>{crop.area}</Text>
-                  <View style={styles.plotTileBadge}>
-                    <Text style={styles.plotTileBadgeText}>{crop.plotName}</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* Selected Plot Detail Card */}
-          {selectedPlotCrop && (
-            <View style={styles.selectedPlotCard}>
-              <View style={styles.selectedPlotHeaderRow}>
-                <View>
-                  <Text style={styles.selectedPlotTitle}>
-                    📍 {selectedPlotCrop.plotName}: {selectedPlotCrop.name}
-                  </Text>
-                  <Text style={styles.selectedPlotArea}>
-                    क्षेत्र: {selectedPlotCrop.area} • जात: {selectedPlotCrop.variety}
-                  </Text>
-                </View>
-                <View style={[styles.stagePill, { backgroundColor: selectedPlotCrop.stageBg }]}>
-                  <Text style={[styles.stagePillText, { color: selectedPlotCrop.stageColor }]}>
-                    {selectedPlotCrop.stage}
-                  </Text>
-                </View>
+          {/* Interactive Visual Plot Tiles or Empty State */}
+          {cropsList.length === 0 ? (
+            <View style={styles.emptyCardContainer}>
+              <View style={styles.emptyIconCircle}>
+                <Map size={40} color="#15803d" strokeWidth={1.8} />
               </View>
-
-              <View style={styles.selectedPlotMetricsGrid}>
-                <View style={styles.plotMetricItem}>
-                  <Text style={styles.plotMetricVal}>{selectedPlotCrop.sowingDate}</Text>
-                  <Text style={styles.plotMetricLbl}>पेरणी तारीख</Text>
-                </View>
-                <View style={styles.plotMetricItem}>
-                  <Text style={[styles.plotMetricVal, { color: '#b45309' }]}>
-                    {selectedPlotCrop.daysLeft}
-                  </Text>
-                  <Text style={styles.plotMetricLbl}>काढणी वेळ</Text>
-                </View>
-                <View style={styles.plotMetricItem}>
-                  <Text style={[styles.plotMetricVal, { color: '#15803d' }]}>६२%</Text>
-                  <Text style={styles.plotMetricLbl}>माती ओलावा</Text>
-                </View>
-              </View>
-
+              <Text style={styles.emptyCardTitle}>
+                {language === 'mr'
+                  ? 'कोणताही शेताचा तुकडा उपलब्ध नाही'
+                  : language === 'hi'
+                    ? 'कोई खेत टुकड़ा उपलब्ध नहीं'
+                    : 'No Farm Plots Available'}
+              </Text>
+              <Text style={styles.emptyCardSub}>
+                {language === 'mr'
+                  ? 'नवीन पीक जोडल्यावर शेताचा तुकडा आपोआप तयार होईल.'
+                  : language === 'hi'
+                    ? 'नई फसल जोड़ने पर खेत का टुकड़ा स्वतः बन जाएगा।'
+                    : 'Adding a crop will automatically configure your farm plot.'}
+              </Text>
               <TouchableOpacity
-                style={styles.plotActionBtn}
-                onPress={() => router.push('/crop-details')}
+                style={styles.emptyCardBtn}
+                onPress={() => setShowAddCropModal(true)}
                 activeOpacity={0.8}>
-                <Text style={styles.plotActionBtnText}>
-                  {language === 'mr' ? 'या तुकड्याचे व्यवस्थापन करा →' : language === 'hi' ? 'इस टुकड़े का प्रबंधन करें →' : 'Manage this plot →'}
+                <PlusCircle size={18} color="#ffffff" />
+                <Text style={styles.emptyCardBtnText}>
+                  {language === 'mr' ? '+ नवीन पीक जोडा' : language === 'hi' ? '+ नई फसल जोड़ें' : '+ Add Crop'}
                 </Text>
               </TouchableOpacity>
             </View>
+          ) : (
+            <>
+              <View style={styles.plotsGridContainer}>
+                {cropsList.map((crop) => {
+                  const isSelected = selectedPlotId === crop.id;
+                  return (
+                    <TouchableOpacity
+                      key={crop.id}
+                      style={[
+                        styles.plotTileCard,
+                        isSelected && styles.plotTileCardSelected,
+                      ]}
+                      onPress={() => setSelectedPlotId(crop.id)}
+                      activeOpacity={0.8}>
+                      <View style={[styles.plotCropIconCircle, { backgroundColor: crop.stageBg }]}>
+                        <Sprout
+                          size={24}
+                          color={crop.stageColor}
+                          strokeWidth={2}
+                        />
+                      </View>
+
+                      <Text style={styles.plotTileName}>{crop.name}</Text>
+                      <Text style={styles.plotTileArea}>{crop.area}</Text>
+                      <View style={styles.plotTileBadge}>
+                        <Text style={styles.plotTileBadgeText}>{crop.plotName}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Selected Plot Detail Card */}
+              {selectedPlotCrop && (
+                <View style={styles.selectedPlotCard}>
+                  <View style={styles.selectedPlotHeaderRow}>
+                    <View>
+                      <Text style={styles.selectedPlotTitle}>
+                        📍 {selectedPlotCrop.plotName}: {selectedPlotCrop.name}
+                      </Text>
+                      <Text style={styles.selectedPlotArea}>
+                        क्षेत्र: {selectedPlotCrop.area} • जात: {selectedPlotCrop.variety}
+                      </Text>
+                    </View>
+                    <View style={[styles.stagePill, { backgroundColor: selectedPlotCrop.stageBg }]}>
+                      <Text style={[styles.stagePillText, { color: selectedPlotCrop.stageColor }]}>
+                        {selectedPlotCrop.stage}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.selectedPlotMetricsGrid}>
+                    <View style={styles.plotMetricItem}>
+                      <Text style={styles.plotMetricVal}>{selectedPlotCrop.sowingDate}</Text>
+                      <Text style={styles.plotMetricLbl}>पेरणी तारीख</Text>
+                    </View>
+                    <View style={styles.plotMetricItem}>
+                      <Text style={[styles.plotMetricVal, { color: '#b45309' }]}>
+                        {selectedPlotCrop.daysLeft}
+                      </Text>
+                      <Text style={styles.plotMetricLbl}>काढणी वेळ</Text>
+                    </View>
+                    <View style={styles.plotMetricItem}>
+                      <Text style={[styles.plotMetricVal, { color: '#15803d' }]}>६२%</Text>
+                      <Text style={styles.plotMetricLbl}>माती ओलावा</Text>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.plotActionBtn}
+                    onPress={() => router.push({ pathname: '/crop-details', params: { cropId: selectedPlotCrop.id } })}
+                    activeOpacity={0.8}>
+                    <Text style={styles.plotActionBtnText}>
+                      {language === 'mr' ? 'या तुकड्याचे व्यवस्थापन करा →' : language === 'hi' ? 'इस टुकड़े का प्रबंधन करें →' : 'Manage this plot →'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </>
           )}
         </View>
       )}
@@ -722,7 +878,7 @@ export default function MyFarmScreen() {
             {/* 1. Soil Testing */}
             <TouchableOpacity style={styles.advisoryServiceCard} activeOpacity={0.8}>
               <View style={[styles.advisoryIconBox, { backgroundColor: '#e8f5e9' }]}>
-                <MaterialCommunityIcons name="sprout" size={26} color="#15803d" />
+                <Sprout size={26} color="#15803d" strokeWidth={2.2} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.advisoryServiceTitle}>
@@ -736,13 +892,13 @@ export default function MyFarmScreen() {
                       : 'NPK nutrients and soil pH 7.2'}
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+              <ChevronRight size={18} color="#94a3b8" />
             </TouchableOpacity>
 
             {/* 2. Irrigation */}
             <TouchableOpacity style={styles.advisoryServiceCard} activeOpacity={0.8}>
               <View style={[styles.advisoryIconBox, { backgroundColor: '#e0f2fe' }]}>
-                <Ionicons name="water" size={26} color="#0284c7" />
+                <Droplets size={26} color="#0284c7" strokeWidth={2.2} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.advisoryServiceTitle}>
@@ -756,13 +912,13 @@ export default function MyFarmScreen() {
                       : 'Drip schedule: Morning 7 to 9 AM'}
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+              <ChevronRight size={18} color="#94a3b8" />
             </TouchableOpacity>
 
             {/* 3. Fertilizer Schedule */}
             <TouchableOpacity style={styles.advisoryServiceCard} activeOpacity={0.8}>
               <View style={[styles.advisoryIconBox, { backgroundColor: '#fef3c7' }]}>
-                <MaterialCommunityIcons name="sack" size={26} color="#d97706" />
+                <Package size={26} color="#d97706" strokeWidth={2.2} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.advisoryServiceTitle}>
@@ -776,7 +932,7 @@ export default function MyFarmScreen() {
                       : 'Second dose of Urea & 19:19:19 for Cotton'}
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+              <ChevronRight size={18} color="#94a3b8" />
             </TouchableOpacity>
           </View>
         </View>
@@ -785,9 +941,9 @@ export default function MyFarmScreen() {
       {/* 9. BIG BUTTON: "+ नवीन पीक जोडा" (Add New Crop) */}
       <TouchableOpacity
         style={styles.addNewCropButton}
-        onPress={() => router.push('/crop-details')}
+        onPress={() => setShowAddCropModal(true)}
         activeOpacity={0.85}>
-        <Ionicons name="add-circle" size={24} color="#ffffff" />
+        <PlusCircle size={22} color="#ffffff" strokeWidth={2.2} />
         <Text style={styles.addNewCropButtonText}>
           {language === 'mr' ? '+ नवीन पीक जोडा (Add New Crop)' : language === 'hi' ? '+ नई फसल जोड़ें' : '+ Add New Crop'}
         </Text>
@@ -797,7 +953,7 @@ export default function MyFarmScreen() {
       <View style={styles.helplineCard}>
         <View style={styles.helplineLeftCol}>
           <View style={styles.helplineHeadRow}>
-            <Ionicons name="call" size={18} color="#15803d" />
+            <Phone size={18} color="#15803d" />
             <Text style={styles.helplineTitle}>
               {language === 'mr' ? 'किसान कॉल सेंटर (टोल-फ्री)' : language === 'hi' ? 'किसान कॉल सेंटर (टोल-फ्री)' : 'Kisan Call Center (Toll-Free)'}
             </Text>
@@ -816,7 +972,7 @@ export default function MyFarmScreen() {
           style={styles.callNowBtn}
           onPress={handleCallKisanHelpline}
           activeOpacity={0.8}>
-          <Ionicons name="call" size={16} color="#ffffff" />
+          <Phone size={16} color="#ffffff" />
           <Text style={styles.callNowBtnText}>
             {language === 'mr' ? 'कॉल करा' : language === 'hi' ? 'कॉल करें' : 'Call'}
           </Text>
@@ -831,38 +987,99 @@ export default function MyFarmScreen() {
         onRequestClose={() => setShowAddCropModal(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <Text style={{ fontSize: 18, fontWeight: '700', color: '#1e293b' }}>
-                {language === 'mr' ? 'नवीन पीक जोडा' : 'Add New Crop'}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: '#1e293b' }}>
+                {language === 'mr' ? 'नवीन पीक जोडा' : language === 'hi' ? 'नई फसल जोड़ें' : 'Add New Crop'}
               </Text>
               <TouchableOpacity onPress={() => setShowAddCropModal(false)}>
-                <Ionicons name="close-circle" size={24} color="#94a3b8" />
+                <XCircle size={24} color="#94a3b8" />
               </TouchableOpacity>
             </View>
 
-            <Text style={{ fontSize: 13, fontWeight: '600', color: '#475569', marginBottom: 4 }}>
-              {language === 'mr' ? 'पिकाचे नाव (उदा. कांदा, कापूस, सोयाबीन)' : 'Crop Name'}
+            {/* Quick Crop Selector Chips */}
+            <View style={{ marginBottom: 12 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b', marginBottom: 6 }}>
+                {language === 'mr' ? 'लोकप्रिय पिके (टॅप करा):' : language === 'hi' ? 'लोकप्रिय फसलें चुनें:' : 'Quick Select Crop:'}
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
+                {[
+                  { name: language === 'mr' ? 'सोयाबीन' : language === 'hi' ? 'सोयाबीन' : 'Soybean', variety: 'JS-335' },
+                  { name: language === 'mr' ? 'कापूस' : language === 'hi' ? 'कपास' : 'Cotton', variety: 'RCH-659' },
+                  { name: language === 'mr' ? 'कांदा' : language === 'hi' ? 'प्याज' : 'Onion', variety: 'पंचगंगा लाल' },
+                  { name: language === 'mr' ? 'टोमॅटो' : language === 'hi' ? 'टमाटर' : 'Tomato', variety: 'अभिनव' },
+                  { name: language === 'mr' ? 'मका' : language === 'hi' ? 'मक्का' : 'Maize', variety: 'पायोनियर' },
+                  { name: language === 'mr' ? 'गहू' : language === 'hi' ? 'गेहूं' : 'Wheat', variety: 'लोकवन' },
+                  { name: language === 'mr' ? 'हरभरा' : language === 'hi' ? 'चना' : 'Gram', variety: 'दिग्विजय' },
+                ].map((item, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    onPress={() => {
+                      setNewCropName(item.name);
+                      setNewCropVariety(item.variety);
+                    }}
+                    style={{
+                      backgroundColor: newCropName === item.name ? '#dcfce7' : '#f1f5f9',
+                      borderWidth: 1,
+                      borderColor: newCropName === item.name ? '#15803d' : '#cbd5e1',
+                      borderRadius: 16,
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                    }}>
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        fontWeight: '700',
+                        color: newCropName === item.name ? '#15803d' : '#334155',
+                      }}>
+                      {item.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#475569', marginBottom: 4 }}>
+              {language === 'mr' ? 'पिकाचे नाव' : language === 'hi' ? 'फसल का नाम' : 'Crop Name'}
             </Text>
             <TextInput
               style={{ backgroundColor: '#f1f5f9', borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 12 }}
-              placeholder={language === 'mr' ? 'उदा. टोमॅटो' : 'e.g. Tomato'}
+              placeholder={language === 'mr' ? 'उदा. टोमॅटो, कापूस, सोयाबीन' : 'e.g. Tomato, Cotton'}
               value={newCropName}
               onChangeText={setNewCropName}
             />
 
-            <Text style={{ fontSize: 13, fontWeight: '600', color: '#475569', marginBottom: 4 }}>
-              {language === 'mr' ? 'पिकाची जात / व्हरायटी' : 'Variety'}
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#475569', marginBottom: 4 }}>
+              {language === 'mr' ? 'पिकाची जात / व्हरायटी' : language === 'hi' ? 'किस्म / वैरायटी' : 'Variety'}
             </Text>
             <TextInput
               style={{ backgroundColor: '#f1f5f9', borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 12 }}
-              placeholder={language === 'mr' ? 'उदा. अभिनव' : 'e.g. Hybrid'}
+              placeholder={language === 'mr' ? 'उदा. सुधारित / अभिनव' : 'e.g. Hybrid / Standard'}
               value={newCropVariety}
               onChangeText={setNewCropVariety}
             />
 
-            <Text style={{ fontSize: 13, fontWeight: '600', color: '#475569', marginBottom: 4 }}>
-              {language === 'mr' ? 'क्षेत्र (एकर)' : 'Area (Acres)'}
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#475569', marginBottom: 4 }}>
+              {language === 'mr' ? 'क्षेत्र (एकर)' : language === 'hi' ? 'क्षेत्रफल (एकड़)' : 'Area (Acres)'}
             </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+              {['0.5', '1.0', '1.5', '2.0', '3.0', '5.0'].map((acres) => (
+                <TouchableOpacity
+                  key={acres}
+                  onPress={() => setNewCropArea(acres)}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 12,
+                    backgroundColor: newCropArea === acres ? '#dcfce7' : '#f1f5f9',
+                    borderWidth: 1.5,
+                    borderColor: newCropArea === acres ? '#15803d' : '#cbd5e1',
+                  }}>
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: newCropArea === acres ? '#15803d' : '#334155' }}>
+                    {acres} {language === 'mr' ? 'एकर' : 'Acre'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             <TextInput
               style={{ backgroundColor: '#f1f5f9', borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 16 }}
               placeholder="1.0"
@@ -874,8 +1091,8 @@ export default function MyFarmScreen() {
             <TouchableOpacity
               style={{ backgroundColor: '#15803d', paddingVertical: 14, borderRadius: 12, alignItems: 'center' }}
               onPress={handleSaveCrop}>
-              <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 16 }}>
-                {language === 'mr' ? 'पीक जतन करा' : 'Save Crop'}
+              <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 16 }}>
+                {language === 'mr' ? 'पीक जतन करा' : language === 'hi' ? 'फसल सहेजें' : 'Save Crop'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1727,5 +1944,65 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '800',
+  },
+  emptyCardContainer: {
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    borderStyle: 'dashed',
+    marginVertical: 6,
+  },
+  emptyIconCircle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: '#f0fdf4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  emptyCardTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0f172a',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  emptyCardSub: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+  },
+  emptyCardBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#15803d',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    shadowColor: '#15803d',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  emptyCardBtnText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  cropDeleteBtn: {
+    padding: 5,
+    borderRadius: 12,
+    backgroundColor: '#fef2f2',
   },
 });

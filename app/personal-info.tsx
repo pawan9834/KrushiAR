@@ -1,62 +1,148 @@
 import React, { useState, useEffect } from 'react';
 import {
-  StyleSheet,
-  Text,
-  View,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  DimensionValue,
   Image,
   ImageBackground,
-  Platform,
-  Alert,
   Modal,
+  Platform,
+  ScrollView,
+  StyleProp,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  ViewStyle,
 } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import {
+  ArrowLeft,
+  User,
+  Camera,
+  Phone,
+  Mail,
+  Calendar,
+  ChevronDown,
+  MapPin,
+  Navigation,
+  Building,
+  Save,
+  RotateCcw,
+  CheckCircle2,
+} from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as ImagePicker from 'expo-image-picker';
 import { useLanguage } from '@/context/LanguageContext';
 import { useUserLocation } from '@/context/LocationContext';
 import { getFarmerProfile, updateFarmerProfile } from '@/services/diaryStorage';
+import { lookupPincode } from '@/services/pincodeService';
+
+function SkeletonBox({
+  width,
+  height,
+  borderRadius = 8,
+  style,
+}: {
+  width: DimensionValue;
+  height: DimensionValue;
+  borderRadius?: number;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const [pulseAnim] = useState(() => new Animated.Value(0.35));
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 0.85,
+          duration: 750,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 0.35,
+          duration: 750,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [pulseAnim]);
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width,
+          height,
+          borderRadius,
+          backgroundColor: '#e2e8f0',
+          opacity: pulseAnim,
+        },
+        style,
+      ]}
+    />
+  );
+}
 
 export default function PersonalInformationScreen() {
   const insets = useSafeAreaInsets();
-  const { t } = useLanguage();
-  const { location, requestLocation } = useUserLocation();
+  const { t, language } = useLanguage();
+  const { location, requestLocation, reloadFromProfile } = useUserLocation();
 
-  // Initial Form Data
+  const [isLoading, setIsLoading] = useState(true);
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+
+  // Initial Form Data (all clean, no hardcoded static mock values)
   const [form, setForm] = useState({
     fullName: '',
     phoneNumber: '',
     emailAddress: '',
-    dob: '12 Jan 1997',
-    gender: 'Male',
-    state: 'Maharashtra',
-    district: 'Jalgaon',
-    taluka: 'Chopda',
-    villageCity: 'Chopda',
-    pincode: '425107',
+    dob: '',
+    gender: '',
+    state: '',
+    district: '',
+    taluka: '',
+    villageCity: '',
+    pincode: '',
   });
 
   useEffect(() => {
+    let isMounted = true;
     (async () => {
       try {
         const profile = await getFarmerProfile();
-        if (profile) {
-          setForm((prev) => ({
-            ...prev,
-            fullName: profile.name || prev.fullName,
-            phoneNumber: profile.phone ? (profile.phone.startsWith('+91') ? profile.phone : `+91 ${profile.phone}`) : prev.phoneNumber,
-            villageCity: profile.village || prev.villageCity,
-            taluka: profile.village || prev.taluka,
-            district: profile.district || prev.district,
-            state: profile.state || prev.state,
-          }));
+        if (profile && isMounted) {
+          setForm({
+            fullName: profile.name || '',
+            phoneNumber: profile.phone ? (profile.phone.startsWith('+91') ? profile.phone : `+91 ${profile.phone}`) : '',
+            emailAddress: profile.email || '',
+            dob: profile.dob || '',
+            gender: profile.gender || '',
+            state: profile.state || '',
+            district: profile.district || '',
+            taluka: profile.taluka || '',
+            villageCity: profile.village || '',
+            pincode: profile.pincode || '',
+          });
+          if (profile.avatarUri) {
+            setAvatarUri(profile.avatarUri);
+          }
         }
       } catch (err) {
         console.warn('Failed to load profile in personal-info:', err);
+      } finally {
+        if (isMounted) setIsLoading(false);
       }
     })();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Modal selector states
@@ -83,11 +169,17 @@ export default function PersonalInformationScreen() {
 
   const handleSave = async () => {
     if (!form.fullName.trim()) {
-      Alert.alert('Required', 'Please enter your Full Name');
+      Alert.alert(
+        language === 'mr' ? 'नाव आवश्यक' : language === 'hi' ? 'नाम आवश्यक' : 'Required',
+        language === 'mr' ? 'कृपया तुमचे पूर्ण नाव टाका.' : language === 'hi' ? 'कृपया अपना पूरा नाम दर्ज करें।' : 'Please enter your Full Name.'
+      );
       return;
     }
     if (!form.phoneNumber.trim()) {
-      Alert.alert('Required', 'Please enter your Phone Number');
+      Alert.alert(
+        language === 'mr' ? 'मोबाईल नंबर आवश्यक' : language === 'hi' ? 'मोबाइल नंबर आवश्यक' : 'Required',
+        language === 'mr' ? 'कृपया तुमचा मोबाईल नंबर टाका.' : language === 'hi' ? 'कृपया अपना मोबाइल नंबर दर्ज करें।' : 'Please enter your Phone Number.'
+      );
       return;
     }
 
@@ -95,13 +187,26 @@ export default function PersonalInformationScreen() {
       await updateFarmerProfile({
         name: form.fullName.trim(),
         phone: form.phoneNumber.trim().replace('+91', '').trim(),
-        village: form.villageCity.trim(),
-        district: form.district.trim(),
+        email: form.emailAddress.trim(),
+        dob: form.dob.trim(),
+        gender: form.gender.trim(),
         state: form.state.trim(),
+        district: form.district.trim(),
+        taluka: form.taluka.trim(),
+        village: form.villageCity.trim(),
+        pincode: form.pincode.trim(),
+        avatarUri: avatarUri || undefined,
       });
-      Alert.alert('Success', t.saveSuccess || 'Personal information updated successfully!', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      await reloadFromProfile();
+      Alert.alert(
+        language === 'mr' ? '✅ माहिती जतन झाली!' : language === 'hi' ? '✅ जानकारी सुरक्षित हुई!' : 'Success',
+        language === 'mr'
+          ? 'तुमची वैयक्तिक माहिती सुरक्षित अपडेट झाली आहे.'
+          : language === 'hi'
+            ? 'आपकी व्यक्तिगत जानकारी सफलतापूर्वक अपडेट हो गई।'
+            : (t.saveSuccess || 'Personal information updated successfully!'),
+        [{ text: language === 'mr' ? 'ठीक आहे' : 'OK', onPress: () => router.back() }]
+      );
     } catch (err) {
       console.error('Failed to update profile:', err);
     }
@@ -119,17 +224,18 @@ export default function PersonalInformationScreen() {
           onPress: async () => {
             const profile = await getFarmerProfile();
             setForm({
-              fullName: profile.name || '',
-              phoneNumber: profile.phone ? `+91 ${profile.phone}` : '',
-              emailAddress: '',
-              dob: '12 Jan 1997',
-              gender: 'Male',
-              state: profile.state || 'Maharashtra',
-              district: profile.district || 'Jalgaon',
-              taluka: profile.village || 'Chopda',
-              villageCity: profile.village || 'Chopda',
-              pincode: '425107',
+              fullName: profile?.name || '',
+              phoneNumber: profile?.phone ? (profile.phone.startsWith('+91') ? profile.phone : `+91 ${profile.phone}`) : '',
+              emailAddress: profile?.email || '',
+              dob: profile?.dob || '',
+              gender: profile?.gender || '',
+              state: profile?.state || '',
+              district: profile?.district || '',
+              taluka: profile?.taluka || '',
+              villageCity: profile?.village || '',
+              pincode: profile?.pincode || '',
             });
+            setAvatarUri(profile?.avatarUri || null);
             Alert.alert('Reset', t.resetSuccess || 'Form reset.');
           },
         },
@@ -137,13 +243,78 @@ export default function PersonalInformationScreen() {
     );
   };
 
+  const handlePhotoSelected = async (uri: string) => {
+    setAvatarUri(uri);
+    setIsUploadingPhoto(true);
+    try {
+      const updated = await updateFarmerProfile({ avatarUri: uri });
+      if (updated.avatarUri && updated.avatarUri.startsWith('http')) {
+        setAvatarUri(updated.avatarUri);
+        Alert.alert(
+          'यशस्वी / Success',
+          'प्रोफाइल फोटो Firebase Storage वर यशस्वीरीत्या अपलोड झाला!\nProfile photo uploaded to Firebase Storage online successfully!'
+        );
+      }
+    } catch (err: any) {
+      console.error('Photo upload failed:', err);
+      Alert.alert(
+        'Firebase Storage Notice',
+        `फोटो Firebase Storage वर अपलोड होऊ शकला नाही.\n\nकृपया Firebase Console मध्ये Storage -> Rules तपासा (allow read, write: if true;).\n\nत्रुटी: ${err?.message || 'Permission denied'}`
+      );
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
   const handleChangePhoto = () => {
     Alert.alert(
       t.changePhoto || 'Change Photo',
       'Choose an option to update your profile photo:',
       [
-        { text: 'Take Photo', onPress: () => console.log('Take Photo') },
-        { text: 'Choose from Gallery', onPress: () => console.log('Choose from Gallery') },
+        {
+          text: 'Take Photo',
+          onPress: async () => {
+            try {
+              const { status } = await ImagePicker.requestCameraPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert('Permission Denied', 'Camera permission is required.');
+                return;
+              }
+              const res = await ImagePicker.launchCameraAsync({
+                allowsEditing: true,
+                aspect: [1, 1],
+                quality: 0.8,
+              });
+              if (!res.canceled && res.assets?.[0]?.uri) {
+                await handlePhotoSelected(res.assets[0].uri);
+              }
+            } catch (err) {
+              console.warn('Camera photo picker error:', err);
+            }
+          },
+        },
+        {
+          text: 'Choose from Gallery',
+          onPress: async () => {
+            try {
+              const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert('Permission Denied', 'Media library permission is required.');
+                return;
+              }
+              const res = await ImagePicker.launchImageLibraryAsync({
+                allowsEditing: true,
+                aspect: [1, 1],
+                quality: 0.8,
+              });
+              if (!res.canceled && res.assets?.[0]?.uri) {
+                await handlePhotoSelected(res.assets[0].uri);
+              }
+            } catch (err) {
+              console.warn('Gallery picker error:', err);
+            }
+          },
+        },
         { text: t.cancel || 'Cancel', style: 'cancel' },
       ]
     );
@@ -164,7 +335,7 @@ export default function PersonalInformationScreen() {
                 style={styles.backBtn}
                 onPress={() => router.back()}
                 activeOpacity={0.7}>
-                <Ionicons name="arrow-back" size={24} color="#0f172a" />
+                <ArrowLeft size={24} color="#0f172a" />
               </TouchableOpacity>
 
               <View style={styles.headerTitlesCol}>
@@ -174,10 +345,13 @@ export default function PersonalInformationScreen() {
 
               {/* Farmer Mascot on Top Right */}
               <View style={styles.mascotWrap}>
-                <Image
-                  source={{ uri: 'https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?w=300&q=80' }}
-                  style={styles.mascotImg}
-                />
+                {avatarUri ? (
+                  <Image source={{ uri: avatarUri }} style={styles.mascotImg} />
+                ) : (
+                  <View style={[styles.mascotImg, styles.avatarPlaceholderSmall]}>
+                    <User size={20} color="#16a34a" />
+                  </View>
+                )}
               </View>
             </View>
           </View>
@@ -188,36 +362,100 @@ export default function PersonalInformationScreen() {
         style={styles.scrollWrap}
         contentContainerStyle={[styles.contentContainer, { paddingBottom: 24 }]}
         showsVerticalScrollIndicator={false}>
-        {/* 2. Profile Photo Card */}
-        <View style={styles.profileCard}>
-          <View style={styles.avatarWrap}>
-            <Image
-              source={{ uri: 'https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?w=300&q=80' }}
-              style={styles.avatarImg}
-            />
-            <TouchableOpacity style={styles.cameraBadge} onPress={handleChangePhoto} activeOpacity={0.8}>
-              <Ionicons name="camera" size={13} color="#ffffff" />
-            </TouchableOpacity>
+        {isLoading ? (
+          <View style={styles.skeletonWrap}>
+            {/* Profile Photo Card Skeleton */}
+            <View style={styles.profileCard}>
+              <SkeletonBox width={80} height={80} borderRadius={40} style={{ marginRight: 16 }} />
+              <View style={{ flex: 1, gap: 8 }}>
+                <SkeletonBox width="60%" height={18} borderRadius={4} />
+                <SkeletonBox width="80%" height={12} borderRadius={4} />
+                <SkeletonBox width={110} height={32} borderRadius={16} style={{ marginTop: 4 }} />
+              </View>
+            </View>
+
+            {/* Basic Info Card Skeleton */}
+            <View style={styles.formCard}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                <SkeletonBox width={26} height={26} borderRadius={13} />
+                <SkeletonBox width={140} height={16} borderRadius={4} />
+              </View>
+              <View style={{ gap: 14 }}>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <SkeletonBox width="48%" height={56} borderRadius={10} />
+                  <SkeletonBox width="48%" height={56} borderRadius={10} />
+                </View>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <SkeletonBox width="48%" height={56} borderRadius={10} />
+                  <SkeletonBox width="48%" height={56} borderRadius={10} />
+                </View>
+                <SkeletonBox width="48%" height={56} borderRadius={10} />
+              </View>
+            </View>
+
+            {/* Location Info Card Skeleton */}
+            <View style={styles.formCard}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                <SkeletonBox width={26} height={26} borderRadius={13} />
+                <SkeletonBox width={160} height={16} borderRadius={4} />
+              </View>
+              <View style={{ gap: 14 }}>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <SkeletonBox width="48%" height={56} borderRadius={10} />
+                  <SkeletonBox width="48%" height={56} borderRadius={10} />
+                </View>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <SkeletonBox width="48%" height={56} borderRadius={10} />
+                  <SkeletonBox width="48%" height={56} borderRadius={10} />
+                </View>
+                <SkeletonBox width="48%" height={56} borderRadius={10} />
+              </View>
+            </View>
           </View>
+        ) : (
+          <>
+            {/* 2. Profile Photo Card */}
+            <View style={styles.profileCard}>
+              <View style={styles.avatarWrap}>
+                {avatarUri ? (
+                  <Image source={{ uri: avatarUri }} style={styles.avatarImg} />
+                ) : (
+                  <View style={[styles.avatarImg, styles.avatarPlaceholder]}>
+                    {form.fullName?.trim() ? (
+                      <Text style={styles.avatarInitial}>{form.fullName.trim().charAt(0).toUpperCase()}</Text>
+                    ) : (
+                      <User size={36} color="#16a34a" />
+                    )}
+                  </View>
+                )}
+                {isUploadingPhoto ? (
+                  <View style={[styles.avatarImg, { position: 'absolute', top: 0, left: 0, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }]}>
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  </View>
+                ) : null}
+                <TouchableOpacity style={styles.cameraBadge} onPress={handleChangePhoto} activeOpacity={0.8} disabled={isUploadingPhoto}>
+                  <Camera size={13} color="#ffffff" />
+                </TouchableOpacity>
+              </View>
 
-          <View style={styles.profileDetailsCol}>
-            <Text style={styles.farmerName}>{form.fullName}</Text>
-            <Text style={styles.updatePhotoHint}>{t.updateProfilePhoto || 'Update your profile photo'}</Text>
+              <View style={styles.profileDetailsCol}>
+                <Text style={styles.farmerName}>{form.fullName?.trim() || t.na}</Text>
+                <Text style={styles.updatePhotoHint}>{t.updateProfilePhoto || 'Update your profile photo'}</Text>
 
-            <TouchableOpacity style={styles.changePhotoBtn} onPress={handleChangePhoto} activeOpacity={0.8}>
-              <Ionicons name="camera-outline" size={16} color="#16a34a" />
-              <Text style={styles.changePhotoText}>{t.changePhoto || 'Change Photo'}</Text>
-            </TouchableOpacity>
+                <TouchableOpacity style={styles.changePhotoBtn} onPress={handleChangePhoto} activeOpacity={0.8}>
+                  <Camera size={16} color="#16a34a" />
+                  <Text style={styles.changePhotoText}>{t.changePhoto || 'Change Photo'}</Text>
+                </TouchableOpacity>
 
-            <Text style={styles.photoLimitNote}>{t.photoLimit || 'JPG, PNG up to 5MB'}</Text>
-          </View>
-        </View>
+                <Text style={styles.photoLimitNote}>{t.photoLimit || 'JPG, PNG up to 5MB'}</Text>
+              </View>
+            </View>
 
         {/* 3. Card 1: Basic Information */}
         <View style={styles.formCard}>
           <View style={styles.cardHeaderRow}>
             <View style={styles.greenIconCircle}>
-              <Ionicons name="person" size={15} color="#ffffff" />
+              <User size={15} color="#ffffff" />
             </View>
             <Text style={styles.cardTitle}>{t.basicInfo || 'Basic Information'}</Text>
           </View>
@@ -229,7 +467,7 @@ export default function PersonalInformationScreen() {
                 {t.fullName || 'Full Name'} <Text style={styles.reqAsterisk}>*</Text>
               </Text>
               <View style={styles.inputBox}>
-                <Ionicons name="person-outline" size={16} color="#64748b" style={styles.fieldIcon} />
+                <User size={16} color="#64748b" style={styles.fieldIcon} />
                 <TextInput
                   style={styles.textInput}
                   value={form.fullName}
@@ -245,7 +483,7 @@ export default function PersonalInformationScreen() {
                 {t.phoneNumber || 'Phone Number'} <Text style={styles.reqAsterisk}>*</Text>
               </Text>
               <View style={styles.inputBox}>
-                <Ionicons name="call-outline" size={16} color="#64748b" style={styles.fieldIcon} />
+                <Phone size={16} color="#64748b" style={styles.fieldIcon} />
                 <TextInput
                   style={styles.textInput}
                   value={form.phoneNumber}
@@ -262,15 +500,15 @@ export default function PersonalInformationScreen() {
           <View style={styles.fieldRow}>
             <View style={styles.fieldCol}>
               <Text style={styles.fieldLabel}>
-                {t.emailAddress || 'Email Address'} <Text style={styles.reqAsterisk}>*</Text>
+                {language === 'mr' ? 'ईमेल (ऐच्छिक)' : language === 'hi' ? 'ईमेल (वैकल्पिक)' : 'Email (Optional)'}
               </Text>
               <View style={styles.inputBox}>
-                <Ionicons name="mail-outline" size={16} color="#64748b" style={styles.fieldIcon} />
+                <Mail size={16} color="#64748b" style={styles.fieldIcon} />
                 <TextInput
                   style={styles.textInput}
                   value={form.emailAddress}
                   onChangeText={(val) => setForm((prev) => ({ ...prev, emailAddress: val }))}
-                  placeholder="Email"
+                  placeholder={language === 'mr' ? 'उदा. farmer@gmail.com' : 'Email (Optional)'}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   placeholderTextColor="#94a3b8"
@@ -279,17 +517,18 @@ export default function PersonalInformationScreen() {
             </View>
 
             <View style={styles.fieldCol}>
-              <Text style={styles.fieldLabel}>{t.dateOfBirth || 'Date of Birth'}</Text>
+              <Text style={styles.fieldLabel}>
+                {language === 'mr' ? 'जन्मतारीख (ऐच्छिक)' : language === 'hi' ? 'जन्म तारीख (वैकल्पिक)' : (t.dateOfBirth || 'Date of Birth')}
+              </Text>
               <View style={styles.inputBox}>
-                <Ionicons name="calendar-outline" size={16} color="#64748b" style={styles.fieldIcon} />
+                <Calendar size={16} color="#64748b" style={styles.fieldIcon} />
                 <TextInput
                   style={styles.textInput}
                   value={form.dob}
                   onChangeText={(val) => setForm((prev) => ({ ...prev, dob: val }))}
-                  placeholder="DD Mon YYYY"
+                  placeholder="DD/MM/YYYY"
                   placeholderTextColor="#94a3b8"
                 />
-                <Ionicons name="calendar-outline" size={15} color="#64748b" />
               </View>
             </View>
           </View>
@@ -302,9 +541,11 @@ export default function PersonalInformationScreen() {
                 style={styles.inputBox}
                 activeOpacity={0.7}
                 onPress={() => setModalType('gender')}>
-                <Ionicons name="person-outline" size={16} color="#64748b" style={styles.fieldIcon} />
-                <Text style={styles.selectText}>{form.gender}</Text>
-                <Ionicons name="chevron-down" size={14} color="#64748b" />
+                <User size={16} color="#64748b" style={styles.fieldIcon} />
+                <Text style={[styles.selectText, !form.gender && { color: '#94a3b8' }]}>
+                  {form.gender || t.selectGender || t.na}
+                </Text>
+                <ChevronDown size={14} color="#64748b" />
               </TouchableOpacity>
             </View>
             <View style={styles.fieldCol} />
@@ -316,7 +557,7 @@ export default function PersonalInformationScreen() {
           <View style={styles.cardHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <View style={styles.greenIconCircle}>
-                <Ionicons name="location-sharp" size={15} color="#ffffff" />
+                <MapPin size={15} color="#ffffff" />
               </View>
               <Text style={styles.cardTitle}>{t.locationInfo || 'Location Information'}</Text>
             </View>
@@ -324,7 +565,7 @@ export default function PersonalInformationScreen() {
               style={styles.gpsAutoBtn}
               onPress={handleAutoDetectLocation}
               activeOpacity={0.8}>
-              <Ionicons name="navigate" size={12} color="#16a34a" />
+              <Navigation size={12} color="#16a34a" />
               <Text style={styles.gpsAutoText}>GPS Auto-fill</Text>
             </TouchableOpacity>
           </View>
@@ -339,9 +580,11 @@ export default function PersonalInformationScreen() {
                 style={styles.inputBox}
                 activeOpacity={0.7}
                 onPress={() => setModalType('state')}>
-                <Ionicons name="location-outline" size={16} color="#64748b" style={styles.fieldIcon} />
-                <Text style={styles.selectText} numberOfLines={1}>{form.state}</Text>
-                <Ionicons name="chevron-down" size={14} color="#64748b" />
+                <MapPin size={16} color="#64748b" style={styles.fieldIcon} />
+                <Text style={[styles.selectText, !form.state && { color: '#94a3b8' }]} numberOfLines={1}>
+                  {form.state || t.selectState || t.na}
+                </Text>
+                <ChevronDown size={14} color="#64748b" />
               </TouchableOpacity>
             </View>
 
@@ -353,9 +596,11 @@ export default function PersonalInformationScreen() {
                 style={styles.inputBox}
                 activeOpacity={0.7}
                 onPress={() => setModalType('district')}>
-                <Ionicons name="location-outline" size={16} color="#64748b" style={styles.fieldIcon} />
-                <Text style={styles.selectText} numberOfLines={1}>{form.district}</Text>
-                <Ionicons name="chevron-down" size={14} color="#64748b" />
+                <MapPin size={16} color="#64748b" style={styles.fieldIcon} />
+                <Text style={[styles.selectText, !form.district && { color: '#94a3b8' }]} numberOfLines={1}>
+                  {form.district || t.selectDistrict || t.na}
+                </Text>
+                <ChevronDown size={14} color="#64748b" />
               </TouchableOpacity>
             </View>
           </View>
@@ -370,9 +615,11 @@ export default function PersonalInformationScreen() {
                 style={styles.inputBox}
                 activeOpacity={0.7}
                 onPress={() => setModalType('taluka')}>
-                <Ionicons name="location-outline" size={16} color="#64748b" style={styles.fieldIcon} />
-                <Text style={styles.selectText} numberOfLines={1}>{form.taluka}</Text>
-                <Ionicons name="chevron-down" size={14} color="#64748b" />
+                <MapPin size={16} color="#64748b" style={styles.fieldIcon} />
+                <Text style={[styles.selectText, !form.taluka && { color: '#94a3b8' }]} numberOfLines={1}>
+                  {form.taluka || t.selectTaluka || t.na}
+                </Text>
+                <ChevronDown size={14} color="#64748b" />
               </TouchableOpacity>
             </View>
 
@@ -381,12 +628,12 @@ export default function PersonalInformationScreen() {
                 {t.villageCity || 'Village / City'} <Text style={styles.reqAsterisk}>*</Text>
               </Text>
               <View style={styles.inputBox}>
-                <Ionicons name="business-outline" size={16} color="#64748b" style={styles.fieldIcon} />
+                <Building size={16} color="#64748b" style={styles.fieldIcon} />
                 <TextInput
                   style={styles.textInput}
                   value={form.villageCity}
                   onChangeText={(val) => setForm((prev) => ({ ...prev, villageCity: val }))}
-                  placeholder="Village / City"
+                  placeholder={t.villageCity || 'Village / City'}
                   placeholderTextColor="#94a3b8"
                 />
               </View>
@@ -400,12 +647,27 @@ export default function PersonalInformationScreen() {
                 {t.pincode || 'Pincode'} <Text style={styles.reqAsterisk}>*</Text>
               </Text>
               <View style={styles.inputBox}>
-                <Ionicons name="mail-outline" size={16} color="#64748b" style={styles.fieldIcon} />
+                <MapPin size={16} color="#64748b" style={styles.fieldIcon} />
                 <TextInput
                   style={styles.textInput}
                   value={form.pincode}
-                  onChangeText={(val) => setForm((prev) => ({ ...prev, pincode: val }))}
-                  placeholder="Pincode"
+                  onChangeText={async (val) => {
+                    const clean = val.replace(/\D/g, '').slice(0, 6);
+                    setForm((prev) => ({ ...prev, pincode: clean }));
+                    if (clean.length === 6) {
+                      const info = await lookupPincode(clean);
+                      if (info) {
+                        setForm((prev) => ({
+                          ...prev,
+                          district: info.district || prev.district,
+                          state: info.state || prev.state,
+                          taluka: info.city || prev.taluka,
+                          villageCity: info.city || prev.villageCity,
+                        }));
+                      }
+                    }
+                  }}
+                  placeholder={t.pincode || 'Pincode'}
                   keyboardType="numeric"
                   maxLength={6}
                   placeholderTextColor="#94a3b8"
@@ -415,7 +677,9 @@ export default function PersonalInformationScreen() {
             <View style={styles.fieldCol} />
           </View>
         </View>
-      </ScrollView>
+      </>
+    )}
+  </ScrollView>
 
       {/* 5. Sticky Bottom Action Buttons */}
       <View
@@ -424,12 +688,12 @@ export default function PersonalInformationScreen() {
           { paddingBottom: Math.max(insets.bottom, 12) },
         ]}>
         <TouchableOpacity style={styles.saveBtn} activeOpacity={0.85} onPress={handleSave}>
-          <MaterialCommunityIcons name="content-save-outline" size={18} color="#ffffff" />
+          <Save size={18} color="#ffffff" />
           <Text style={styles.saveBtnText}>{t.saveChanges || 'Save Changes'}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.resetBtn} activeOpacity={0.85} onPress={handleReset}>
-          <Ionicons name="refresh" size={18} color="#16a34a" />
+          <RotateCcw size={18} color="#16a34a" />
           <Text style={styles.resetBtnText}>{t.reset || 'Reset'}</Text>
         </TouchableOpacity>
       </View>
@@ -478,7 +742,7 @@ export default function PersonalInformationScreen() {
                 (modalType === 'state' && form.state === opt) ||
                 (modalType === 'district' && form.district === opt) ||
                 (modalType === 'taluka' && form.taluka === opt) ? (
-                  <Ionicons name="checkmark-circle" size={18} color="#16a34a" />
+                  <CheckCircle2 size={18} color="#16a34a" />
                 ) : null}
               </TouchableOpacity>
             ))}
@@ -584,6 +848,24 @@ const styles = StyleSheet.create({
     borderRadius: 40,
     borderWidth: 2,
     borderColor: '#16a34a',
+  },
+  avatarPlaceholder: {
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarPlaceholderSmall: {
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitial: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#16a34a',
+  },
+  skeletonWrap: {
+    marginBottom: 4,
   },
   cameraBadge: {
     position: 'absolute',

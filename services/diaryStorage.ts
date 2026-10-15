@@ -1,12 +1,23 @@
 // services/diaryStorage.ts
 import * as FileSystem from 'expo-file-system/legacy';
 import {
+  checkFarmerRegistrationByPhone,
   deleteActivityFromFirestore,
+  deleteCropFromFirestore,
+  deletePlotFromFirestore,
   fetchActivitiesFromFirestore,
+  fetchCropsFromFirestore,
   fetchFarmerProfileFromFirestore,
+  fetchPlotsFromFirestore,
+  getCurrentUserId,
   saveActivityToFirestore,
+  saveCropToFirestore,
   saveFarmerProfileToFirestore,
+  savePlotToFirestore,
+  setActiveUserId,
+  syncAllDataFromFirestore,
   uploadDiaryPhoto,
+  uploadFarmerAvatar,
 } from './firebaseDiary';
 
 export type ActivityType =
@@ -102,9 +113,14 @@ export interface FarmerProfile {
   id: string;
   name: string;
   phone: string;
+  email?: string;
+  dob?: string;
+  gender?: string;
+  taluka?: string;
   village: string;
   district: string;
   state: string;
+  pincode?: string;
   totalArea: string;
   areaUnit: string;
   preferredLanguage: 'mr' | 'hi' | 'en';
@@ -129,109 +145,24 @@ function getDbPath(): string {
 
 const INITIAL_SEED_DATA: DiaryDatabase = {
   farmer: {
-    id: 'farmer_01',
-    name: 'पवन पाटील',
-    phone: '९८२२१२३४५६',
-    village: 'चोपडा',
-    district: 'जळगाव',
-    state: 'महाराष्ट्र',
-    totalArea: '५.५',
-    areaUnit: 'एकर',
+    id: '',
+    name: '',
+    phone: '',
+    email: '',
+    dob: '',
+    gender: '',
+    taluka: '',
+    village: '',
+    district: '',
+    state: '',
+    pincode: '',
+    totalArea: '',
+    areaUnit: '',
     preferredLanguage: 'mr',
     createdDate: new Date().toISOString(),
   },
-  plots: [
-    {
-      id: 'plot_1',
-      name: 'शेताचा तुकडा १ (विहिरीचे रान)',
-      area: '१.५',
-      areaUnit: 'एकर',
-      soilType: 'काळी कसदार',
-      irrigationType: 'ठिबक सिंचन',
-    },
-    {
-      id: 'plot_2',
-      name: 'शेताचा तुकडा २ (रस्त्यालगत)',
-      area: '२.०',
-      areaUnit: 'एकर',
-      soilType: 'मध्यम काळी',
-      irrigationType: 'ठिबक सिंचन',
-    },
-    {
-      id: 'plot_3',
-      name: 'शेताचा तुकडा ३ (बोअरवेल शेत)',
-      area: '१.०',
-      areaUnit: 'एकर',
-      soilType: 'हलकी मुरमाड',
-      irrigationType: 'तुषार सिंचन',
-    },
-    {
-      id: 'plot_4',
-      name: 'शेताचा तुकडा ४ (नदीकाठचे रान)',
-      area: '१.०',
-      areaUnit: 'एकर',
-      soilType: 'गाळाची जमीन',
-      irrigationType: 'ठिबक सिंचन',
-    },
-  ],
-  crops: [
-    {
-      id: 'crop_1',
-      plotId: 'plot_1',
-      plotName: 'शेताचा तुकडा १',
-      name: 'टोमॅटो',
-      variety: 'अभिनव (Seminis)',
-      sowingDate: '२०२६-०९-१०',
-      expectedHarvestDate: '२०२६-११-२५',
-      area: '१.५',
-      areaUnit: 'एकर',
-      status: 'active',
-      imageUrl: 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=400&q=80',
-      totalExpenses: 18500,
-    },
-    {
-      id: 'crop_2',
-      plotId: 'plot_2',
-      plotName: 'शेताचा तुकडा २',
-      name: 'सोयाबीन',
-      variety: 'JS-335 (पिवळा)',
-      sowingDate: '२०२६-०६-१५',
-      expectedHarvestDate: '२०२६-१०-२०',
-      area: '२.०',
-      areaUnit: 'एकर',
-      status: 'active',
-      imageUrl: 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&q=80',
-      totalExpenses: 14200,
-    },
-    {
-      id: 'crop_3',
-      plotId: 'plot_3',
-      plotName: 'शेताचा तुकडा ३',
-      name: 'कापूस',
-      variety: 'RCH-659 (बीटी)',
-      sowingDate: '२०२६-०६-१०',
-      expectedHarvestDate: '२०२६-११-१५',
-      area: '१.०',
-      areaUnit: 'एकर',
-      status: 'active',
-      imageUrl: 'https://images.unsplash.com/photo-1606041008023-472dfb5e530f?w=400&q=80',
-      totalExpenses: 12800,
-    },
-    {
-      id: 'crop_4',
-      plotId: 'plot_4',
-      plotName: 'शेताचा तुकडा ४',
-      name: 'कांदा',
-      variety: 'लाल कांदा (पंचगंगा)',
-      sowingDate: '२०२६-०८-०१',
-      expectedHarvestDate: '२०२६-११-३०',
-      area: '१.०',
-      areaUnit: 'एकर',
-      status: 'active',
-      imageUrl: 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=400&q=80',
-      totalExpenses: 0,
-    },
-  ],
+  plots: [],
+  crops: [],
   activities: [],
   drafts: [],
 };
@@ -254,7 +185,27 @@ export async function getDiaryDatabase(): Promise<DiaryDatabase> {
           (a) => !['act_1', 'act_2', 'act_3', 'act_4'].includes(a.id)
         );
         parsed.drafts = parsed.drafts || [];
+
+        // Strip out legacy static mock crops and plots
+        parsed.crops = (parsed.crops || []).filter(
+          (c) => !['crop_1', 'crop_2', 'crop_3', 'crop_4'].includes(c.id)
+        );
+        parsed.plots = (parsed.plots || []).filter(
+          (p) => !['plot_1', 'plot_2', 'plot_3', 'plot_4'].includes(p.id)
+        );
+
+        // Remove legacy static seed mock data if present
+        if (parsed.farmer.name === 'पवन पाटील' && (parsed.farmer.phone === '९८२२१२३४५६' || parsed.farmer.id === 'farmer_01')) {
+          parsed.farmer.name = '';
+          parsed.farmer.phone = '';
+          parsed.farmer.village = '';
+          parsed.farmer.district = '';
+          parsed.farmer.state = '';
+          parsed.farmer.pincode = '';
+          parsed.farmer.totalArea = '';
+        }
         cachedDb = parsed;
+        await saveDiaryDatabase(cachedDb);
         return cachedDb;
       }
     }
@@ -313,7 +264,7 @@ export async function getActivities(filter?: {
   search?: string;
 }): Promise<ActivityRecord[]> {
   const db = await getDiaryDatabase();
-  let list = [...db.activities];
+  let list = (db.activities || []).filter((a) => !['act_1', 'act_2', 'act_3', 'act_4'].includes(a.id));
 
   if (filter?.cropId) {
     list = list.filter((a) => a.cropId === filter.cropId);
@@ -525,7 +476,17 @@ export async function syncActivitiesWithCloud(): Promise<ActivityRecord[]> {
 // Crops
 export async function getCrops(): Promise<Crop[]> {
   const db = await getDiaryDatabase();
-  return db.crops;
+  // Fetch latest crops from Cloud Firestore online
+  try {
+    const cloudCrops = await fetchCropsFromFirestore();
+    if (cloudCrops && cloudCrops.length > 0) {
+      db.crops = cloudCrops.filter((c) => !['crop_1', 'crop_2', 'crop_3', 'crop_4'].includes(c.id));
+      await saveDiaryDatabase(db);
+    }
+  } catch (err) {
+    console.warn('fetchCropsFromFirestore notice:', err);
+  }
+  return (db.crops || []).filter((c) => !['crop_1', 'crop_2', 'crop_3', 'crop_4'].includes(c.id));
 }
 
 export async function getCropById(id: string): Promise<Crop | undefined> {
@@ -542,6 +503,13 @@ export async function addCrop(cropData: Omit<Crop, 'id'>): Promise<Crop> {
   };
   db.crops.push(newCrop);
   await saveDiaryDatabase(db);
+
+  // Save online in Cloud Firestore
+  try {
+    await saveCropToFirestore(newCrop);
+  } catch (err) {
+    console.warn('saveCropToFirestore error:', err);
+  }
   return newCrop;
 }
 
@@ -557,13 +525,44 @@ export async function updateCrop(id: string, updates: Partial<Crop>): Promise<Cr
   };
 
   await saveDiaryDatabase(db);
+
+  // Update online in Cloud Firestore
+  try {
+    await saveCropToFirestore(db.crops[index]);
+  } catch (err) {
+    console.warn('saveCropToFirestore update error:', err);
+  }
   return db.crops[index];
+}
+
+export async function deleteCrop(id: string): Promise<boolean> {
+  const db = await getDiaryDatabase();
+  db.crops = db.crops.filter((c) => c.id !== id);
+  await saveDiaryDatabase(db);
+
+  // Delete online in Cloud Firestore
+  try {
+    await deleteCropFromFirestore(id);
+  } catch (err) {
+    console.warn('deleteCropFromFirestore error:', err);
+  }
+  return true;
 }
 
 // Plots
 export async function getPlots(): Promise<FarmPlot[]> {
   const db = await getDiaryDatabase();
-  return db.plots;
+  // Fetch latest plots from Cloud Firestore online
+  try {
+    const cloudPlots = await fetchPlotsFromFirestore();
+    if (cloudPlots && cloudPlots.length > 0) {
+      db.plots = cloudPlots.filter((p) => !['plot_1', 'plot_2', 'plot_3', 'plot_4'].includes(p.id));
+      await saveDiaryDatabase(db);
+    }
+  } catch (err) {
+    console.warn('fetchPlotsFromFirestore notice:', err);
+  }
+  return (db.plots || []).filter((p) => !['plot_1', 'plot_2', 'plot_3', 'plot_4'].includes(p.id));
 }
 
 export async function addPlot(plotData: Omit<FarmPlot, 'id'>): Promise<FarmPlot> {
@@ -574,38 +573,75 @@ export async function addPlot(plotData: Omit<FarmPlot, 'id'>): Promise<FarmPlot>
   };
   db.plots.push(newPlot);
   await saveDiaryDatabase(db);
+
+  // Save online in Cloud Firestore
+  try {
+    await savePlotToFirestore(newPlot);
+  } catch (err) {
+    console.warn('savePlotToFirestore error:', err);
+  }
   return newPlot;
+}
+
+export async function deletePlot(id: string): Promise<boolean> {
+  const db = await getDiaryDatabase();
+  db.plots = db.plots.filter((p) => p.id !== id);
+  await saveDiaryDatabase(db);
+
+  // Delete online in Cloud Firestore
+  try {
+    await deletePlotFromFirestore(id);
+  } catch (err) {
+    console.warn('deletePlotFromFirestore error:', err);
+  }
+  return true;
 }
 
 // Farmer Profile
 export async function getFarmerProfile(): Promise<FarmerProfile> {
   const db = await getDiaryDatabase();
-  // If local profile has default seed name, attempt to restore from Cloud Firestore
-  if (!db.farmer?.phone || db.farmer.name === 'पवन पाटील') {
-    try {
-      const cloudProfile = await fetchFarmerProfileFromFirestore();
-      if (cloudProfile && cloudProfile.name) {
-        db.farmer = cloudProfile;
-        await saveDiaryDatabase(db);
-        return cloudProfile;
-      }
-    } catch {}
+  // Try to restore from Cloud Firestore online
+  try {
+    const cloudProfile = await fetchFarmerProfileFromFirestore();
+    if (cloudProfile && cloudProfile.name) {
+      db.farmer = cloudProfile;
+      await saveDiaryDatabase(db);
+      return cloudProfile;
+    }
+  } catch (err) {
+    console.warn('fetchFarmerProfileFromFirestore notice:', err);
   }
   return db.farmer;
 }
 
 export async function updateFarmerProfile(updates: Partial<FarmerProfile>): Promise<FarmerProfile> {
   const db = await getDiaryDatabase();
+  const currentId =
+    updates.id ||
+    (db.farmer?.id && db.farmer.id !== 'farmer_01' ? db.farmer.id : getCurrentUserId());
+
+  // If local photo is being set, upload directly to Firebase Storage first
+  if (updates.avatarUri && !updates.avatarUri.startsWith('http')) {
+    try {
+      const cloudUrl = await uploadFarmerAvatar(updates.avatarUri, currentId);
+      if (cloudUrl && cloudUrl.startsWith('http')) {
+        updates.avatarUri = cloudUrl;
+      }
+    } catch (uploadErr) {
+      console.warn('Avatar upload error during updateFarmerProfile:', uploadErr);
+    }
+  }
+
   db.farmer = {
     ...db.farmer,
     ...updates,
-    id: db.farmer?.id || 'farmer_01',
+    id: currentId,
   };
   await saveDiaryDatabase(db);
 
-  // Sync profile details to Cloud Firestore
+  // Sync profile details to Cloud Firestore online
   try {
-    await saveFarmerProfileToFirestore(db.farmer);
+    await saveFarmerProfileToFirestore(db.farmer, currentId);
   } catch (err) {
     console.warn('Firestore profile sync error:', err);
   }
@@ -701,32 +737,53 @@ export async function setOnboardingComplete(completed: boolean): Promise<void> {
 }
 
 /**
- * Checks if the user has previously completed registration in the app.
- * This persists across logouts so returning users only need Mobile + OTP to log in.
+ * Checks if the user is already registered.
+ * Can take an optional phone number to check Cloud Firestore before login.
  */
-export async function isUserRegistered(): Promise<boolean> {
+export async function isUserRegistered(phoneNumber?: string): Promise<boolean> {
+  // 1. If phone number is passed, check Cloud Firestore directly
+  if (phoneNumber && phoneNumber.replace(/\D/g, '').length >= 10) {
+    try {
+      const check = await checkFarmerRegistrationByPhone(phoneNumber);
+      if (check.isRegistered) {
+        if (check.farmer) {
+          const db = await getDiaryDatabase();
+          db.farmer = check.farmer;
+          await saveDiaryDatabase(db);
+        }
+        await setUserRegistered(true);
+        return true;
+      }
+    } catch (err) {
+      console.warn('Phone registration check notice:', err);
+    }
+  }
+
+  // 2. Check local persistent file
   try {
     const path = `${FileSystem.documentDirectory}user_registered.txt`;
     const info = await FileSystem.getInfoAsync(path);
     if (info.exists) return true;
+  } catch { }
 
-    // Check Cloud Firestore for previously registered profile
-    try {
-      const cloudProfile = await fetchFarmerProfileFromFirestore();
-      if (cloudProfile && cloudProfile.name) {
-        const db = await getDiaryDatabase();
-        db.farmer = cloudProfile;
-        await saveDiaryDatabase(db);
-        await setUserRegistered(true);
-        return true;
-      }
-    } catch (e) {
-      console.warn('Cloud profile registration check warning:', e);
+  // 3. Check Cloud Firestore for currently signed in user
+  try {
+    const cloudProfile = await fetchFarmerProfileFromFirestore();
+    if (cloudProfile && cloudProfile.name && cloudProfile.name.trim().length > 0) {
+      const db = await getDiaryDatabase();
+      db.farmer = cloudProfile;
+      await saveDiaryDatabase(db);
+      await setUserRegistered(true);
+      return true;
     }
+  } catch (e) {
+    console.warn('Cloud profile registration check warning:', e);
+  }
 
-    // Check if farmer profile was previously saved in the local database
+  // 4. Check if profile was previously saved in the local database
+  try {
     const db = await getDiaryDatabase();
-    return !!(db.farmer && db.farmer.name && db.farmer.name.trim().length > 0 && db.farmer.name !== 'पवन पाटील');
+    return !!(db.farmer && db.farmer.name && db.farmer.name.trim().length > 0);
   } catch {
     return false;
   }
@@ -742,5 +799,46 @@ export async function setUserRegistered(registered: boolean): Promise<void> {
     }
   } catch (err) {
     console.warn('Failed to update user_registered state:', err);
+  }
+}
+
+/**
+ * Loads all online data from Cloud Firestore (profile, crops, plots, activities)
+ * and synchronizes with local storage.
+ */
+export async function loadUserOnlineData(userId?: string): Promise<DiaryDatabase> {
+  if (userId) {
+    setActiveUserId(userId);
+  }
+  const cloudData = await syncAllDataFromFirestore(userId);
+  const db = await getDiaryDatabase();
+
+  if (cloudData.profile) {
+    db.farmer = cloudData.profile;
+  }
+  if (cloudData.crops && cloudData.crops.length > 0) {
+    db.crops = cloudData.crops;
+  }
+  if (cloudData.plots && cloudData.plots.length > 0) {
+    db.plots = cloudData.plots;
+  }
+  if (cloudData.activities && cloudData.activities.length > 0) {
+    db.activities = cloudData.activities;
+  }
+
+  await saveDiaryDatabase(db);
+  return db;
+}
+
+/**
+ * Clears local session and resets in-memory database cache on logout
+ */
+export async function clearLocalDiarySession(): Promise<void> {
+  setActiveUserId(null);
+  try {
+    const filePath = getDbPath();
+    await FileSystem.deleteAsync(filePath, { idempotent: true });
+  } catch (err) {
+    console.warn('Error clearing local diary cache:', err);
   }
 }

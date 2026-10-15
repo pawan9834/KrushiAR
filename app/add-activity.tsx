@@ -8,13 +8,35 @@ import {
   ActivityType,
   addActivity,
   Crop,
+  ExpenseCategory,
   ExpenseItem,
   getCrops,
   savePermanentPhoto,
   StructuredAnswer
 } from '@/services/diaryStorage';
 import { getCurrentUserId } from '@/services/firebaseDiary';
-import { Ionicons } from '@expo/vector-icons';
+import {
+  ArrowLeft,
+  Sprout,
+  Coins,
+  Droplets,
+  FlaskConical,
+  Gauge,
+  Flower2,
+  Scissors,
+  Package,
+  Wrench,
+  Users,
+  Wallet,
+  CheckCircle2,
+  Camera,
+  RefreshCw,
+  Mic,
+  Sparkles,
+  Volume2,
+  Send,
+  Save,
+} from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
@@ -34,20 +56,66 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-let Speech: typeof import('expo-speech') | null = null;
-try {
-  Speech = require('expo-speech');
-} catch (e) {
-  // Graceful fallback
-}
+import * as Speech from 'expo-speech';
 
 type WorkflowStep = 'photo_voice' | 'ai_questions' | 'review_save';
+
+export const ACTIVITY_PRESETS = [
+  { id: 'irrigation', type: 'irrigation' as ActivityType, mr: 'पाणी देणे', hi: 'सिंचाई', en: 'Irrigation' },
+  { id: 'spraying', type: 'pesticide' as ActivityType, mr: 'फवारणी', hi: 'कीटनाशक छिड़काव', en: 'Spraying' },
+  { id: 'fertilizer', type: 'fertilizer' as ActivityType, mr: 'खत टाकणे', hi: 'खाद डालना', en: 'Fertilizer' },
+  { id: 'tillage', type: 'tillage' as ActivityType, mr: 'नांगरणी / मशागत', hi: 'जुताई', en: 'Tillage' },
+  { id: 'sowing', type: 'planting' as ActivityType, mr: 'पेरणी / लागवड', hi: 'बुवाई', en: 'Sowing' },
+  { id: 'weeding', type: 'weeding' as ActivityType, mr: 'खुरपणी', hi: 'निराई', en: 'Weeding' },
+  { id: 'harvesting', type: 'harvesting' as ActivityType, mr: 'काढणी', hi: 'कटाई', en: 'Harvesting' },
+  { id: 'other', type: 'other' as ActivityType, mr: 'इतर काम', hi: 'अन्य कार्य', en: 'Other' },
+];
+
+export const EXPENSE_CATEGORIES = [
+  { id: 'मजुरी', category: 'labour' as ExpenseCategory, mr: 'मजुरी खर्च', hi: 'मजदूरी खर्च', en: 'Labor Cost' },
+  { id: 'खते व औषधे', category: 'fertilizer' as ExpenseCategory, mr: 'खते व औषधे', hi: 'खाद व दवा', en: 'Fertilizer & Spray' },
+  { id: 'बियाणे', category: 'seeds' as ExpenseCategory, mr: 'बियाणे', hi: 'बीज', en: 'Seeds' },
+  { id: 'ट्रॅक्टर व डिझेल', category: 'machinery' as ExpenseCategory, mr: 'ट्रॅक्टर / डिझेल', hi: 'ट्रैक्टर / डीजल', en: 'Tractor & Fuel' },
+  { id: 'पाणी व वीज', category: 'irrigation' as ExpenseCategory, mr: 'पाणी / वीज', hi: 'पानी / बिजली', en: 'Electricity & Water' },
+  { id: 'इतर खर्च', category: 'other' as ExpenseCategory, mr: 'इतर खर्च', hi: 'अन्य खर्च', en: 'Other Expense' },
+];
+
+function renderPresetIcon(id: string, color: string) {
+  switch (id) {
+    case 'irrigation': return <Droplets size={22} color={color} strokeWidth={2} />;
+    case 'spraying': return <FlaskConical size={22} color={color} strokeWidth={2} />;
+    case 'fertilizer': return <Sprout size={22} color={color} strokeWidth={2} />;
+    case 'tillage': return <Gauge size={22} color={color} strokeWidth={2} />;
+    case 'sowing': return <Flower2 size={22} color={color} strokeWidth={2} />;
+    case 'weeding': return <Scissors size={22} color={color} strokeWidth={2} />;
+    case 'harvesting': return <Package size={22} color={color} strokeWidth={2} />;
+    default: return <Wrench size={22} color={color} strokeWidth={2} />;
+  }
+}
+
+function renderExpenseIcon(category: string, color: string) {
+  switch (category) {
+    case 'labour': return <Users size={22} color={color} strokeWidth={2} />;
+    case 'fertilizer': return <FlaskConical size={22} color={color} strokeWidth={2} />;
+    case 'seeds': return <Sprout size={22} color={color} strokeWidth={2} />;
+    case 'machinery': return <Gauge size={22} color={color} strokeWidth={2} />;
+    case 'irrigation': return <Droplets size={22} color={color} strokeWidth={2} />;
+    default: return <Wallet size={22} color={color} strokeWidth={2} />;
+  }
+}
 
 export default function AddActivityScreen() {
   const insets = useSafeAreaInsets();
   const { language } = useLanguage();
 
-  // Workflow Step State
+  // Dual mode: 'activity' vs 'expense'
+  const [entryMode, setEntryMode] = useState<'activity' | 'expense'>('activity');
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('irrigation');
+  const [selectedExpenseCat, setSelectedExpenseCat] = useState<string>('मजुरी');
+  const [expenseAmountStr, setExpenseAmountStr] = useState<string>('');
+  const [activityExpenseInput, setActivityExpenseInput] = useState<string>('');
+
+  // Workflow Step State (for optional AI Q&A)
   const [currentStep, setCurrentStep] = useState<WorkflowStep>('photo_voice');
 
   // Step 1: Photo & Location & DateTime
@@ -140,16 +208,18 @@ export default function AddActivityScreen() {
     };
   }, []);
 
-  // Photo handlers
+  // Photo handlers (Camera Only - Mandatory)
   const handleTakePhoto = async () => {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert(
-          language === 'mr' ? 'परवानगी हवी' : 'Permission Required',
+          language === 'mr' ? 'कॅमेरा परवानगी आवश्यक' : language === 'hi' ? 'कैमरा अनुमति आवश्यक' : 'Camera Permission Required',
           language === 'mr'
-            ? 'फोटो काढण्यासाठी कॅमेऱ्याची परवानगी आवश्यक आहे.'
-            : 'Camera permission is required to take photo.'
+            ? 'थेट शेतातून पिकाचा फोटो काढण्यासाठी कॅमेऱ्याची परवानगी आवश्यक आहे. गॅलरीतून फोटो चालणार नाही.'
+            : language === 'hi'
+              ? 'खेत से फसल की लाइव फोटो लेने के लिए कैमरे की अनुमति आवश्यक है। गैलरी से फोटो मान्य नहीं है।'
+              : 'Camera permission is required to capture live field photo. Gallery upload is disabled.'
         );
         return;
       }
@@ -166,23 +236,6 @@ export default function AddActivityScreen() {
       }
     } catch (err) {
       console.warn('Camera error:', err);
-    }
-  };
-
-  const handlePickPhoto = async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets && result.assets[0]) {
-        setPhotoUri(result.assets[0].uri);
-      }
-    } catch (err) {
-      console.warn('Gallery pick error:', err);
     }
   };
 
@@ -229,6 +282,18 @@ export default function AddActivityScreen() {
 
   // Start AI Q&A Workflow
   const handleProceedToAiQuestions = async () => {
+    if (!photoUri) {
+      Alert.alert(
+        language === 'mr' ? 'फोटो आवश्यक आहे' : language === 'hi' ? 'फोटो अनिवार्य है' : 'Photo Required',
+        language === 'mr'
+          ? 'कृपया पुढे जाण्यापूर्वी कॅमेऱ्याने शेतातील थेट फोटो काढा.'
+          : language === 'hi'
+            ? 'कृपया आगे बढ़ने से पहले कैमरे से खेत का सीधा फोटो खींचें।'
+            : 'Please capture a live photo of the crop/field using camera before proceeding.'
+      );
+      return;
+    }
+
     if (!transcript.trim()) {
       Alert.alert(
         language === 'mr' ? 'माहिती आवश्यक' : 'Input Required',
@@ -347,8 +412,172 @@ export default function AddActivityScreen() {
     }
   };
 
-  // Final Confirmation & Save
+  // Direct Save Activity (1-Tap for Farmers)
+  const handleDirectSaveActivity = async () => {
+    if (!photoUri) {
+      Alert.alert(
+        language === 'mr' ? 'फोटो आवश्यक आहे' : language === 'hi' ? 'फोटो अनिवार्य है' : 'Photo Required',
+        language === 'mr'
+          ? 'कृपया शेतातील पिकाचा कॅमेऱ्याने थेट फोटो काढा. खात्रीसाठी फोटो अनिवार्य आहे.'
+          : language === 'hi'
+            ? 'कृपया खेत की फसल का कैमरे से सीधा फोटो खींचें। सत्यापन के लिए फोटो अनिवार्य है।'
+            : 'Please take a live photo of the crop/field using the camera. Photo is mandatory.'
+      );
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      let finalPhotoPath = photoUri || undefined;
+      if (finalPhotoPath && !finalPhotoPath.startsWith('http')) {
+        finalPhotoPath = await savePermanentPhoto(finalPhotoPath);
+      }
+
+      const preset = ACTIVITY_PRESETS.find((p) => p.id === selectedPresetId) || ACTIVITY_PRESETS[0];
+      const cropName = selectedCrop?.name || (language === 'mr' ? 'शेती पीक' : language === 'hi' ? 'फसल' : 'Crop');
+      const actTitle = language === 'mr' ? `${cropName} - ${preset.mr}` : language === 'hi' ? `${cropName} - ${preset.hi}` : `${cropName} - ${preset.en}`;
+      const expenseAmount = parseFloat(activityExpenseInput) || 0;
+
+      await addActivity({
+        userId: getCurrentUserId(),
+        cropId: selectedCrop?.id,
+        cropName,
+        plotId: selectedCrop?.plotId,
+        plotName: selectedCrop?.plotName || (language === 'mr' ? 'शेताचा तुकडा' : 'Plot'),
+        activityType: preset.type,
+        activityTitle: actTitle,
+        date: recordedDate,
+        photoUri: finalPhotoPath,
+        location: locationCoords || undefined,
+        voiceTranscript: transcript || actTitle,
+        structuredAnswers: [
+          { question: language === 'mr' ? 'कामाचा प्रकार' : 'Activity', answer: preset.mr },
+        ],
+        expenses: expenseAmount > 0 ? [{ id: `exp_${Date.now()}`, title: preset.mr, amount: expenseAmount, category: 'labour' }] : [],
+        totalExpense: expenseAmount,
+        notes: notes.trim() || transcript.trim() || actTitle,
+        aiSummary: `${cropName} मध्ये ${preset.mr} काम नोंदवले. एकूण खर्च ₹ ${expenseAmount}.`,
+      });
+
+      // Spoken reassurance
+      if (Speech) {
+        const spokenMsg = language === 'mr'
+          ? 'तुमची शेती नोंद सुरक्षित जतन झाली आहे.'
+          : language === 'hi'
+            ? 'आपकी खेती की गतिविधि सुरक्षित दर्ज हो गई है।'
+            : 'Farming activity saved successfully.';
+        Speech.speak(spokenMsg, { language: language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-IN' });
+      }
+
+      Alert.alert(
+        language === 'mr' ? '✅ नोंद जतन झाली!' : language === 'hi' ? '✅ गतिविधि दर्ज हुई!' : '✅ Saved Successfully!',
+        language === 'mr'
+          ? 'तुमची माहिती सुरक्षित जतन झाली आहे.'
+          : language === 'hi'
+            ? 'आपकी जानकारी सुरक्षित दर्ज हो गई है।'
+            : 'Your record has been saved successfully.',
+        [
+          {
+            text: language === 'mr' ? 'ठीक आहे' : 'OK',
+            onPress: () => router.replace('/(tabs)/market'),
+          },
+        ]
+      );
+    } catch (err) {
+      console.error('Save activity error:', err);
+      Alert.alert('त्रुटी', 'नोंद सेव्ह करताना समस्या आली. कृपया पुन्हा प्रयत्न करा.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Direct Save Expense (1-Tap for Farmers)
+  const handleDirectSaveExpense = async () => {
+    const amount = parseFloat(expenseAmountStr);
+    if (!amount || isNaN(amount) || amount <= 0) {
+      Alert.alert(
+        language === 'mr' ? 'रक्कम टाका' : language === 'hi' ? 'राशि दर्ज करें' : 'Amount Required',
+        language === 'mr' ? 'कृपया खर्चाची रक्कम टाका (उदा. ५००).' : 'Please enter valid expense amount.'
+      );
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      let finalPhotoPath = photoUri || undefined;
+      if (finalPhotoPath && !finalPhotoPath.startsWith('http')) {
+        finalPhotoPath = await savePermanentPhoto(finalPhotoPath);
+      }
+
+      const cat = EXPENSE_CATEGORIES.find((c) => c.id === selectedExpenseCat) || EXPENSE_CATEGORIES[0];
+      const cropName = selectedCrop?.name || (language === 'mr' ? 'शेती पीक' : language === 'hi' ? 'फसल' : 'Crop');
+      const expenseTitle = `${cropName} - ${cat.mr} (₹ ${amount})`;
+
+      await addActivity({
+        userId: getCurrentUserId(),
+        cropId: selectedCrop?.id,
+        cropName,
+        plotId: selectedCrop?.plotId,
+        plotName: selectedCrop?.plotName || (language === 'mr' ? 'शेताचा तुकडा' : 'Plot'),
+        activityType: 'other',
+        activityTitle: expenseTitle,
+        date: recordedDate,
+        photoUri: finalPhotoPath,
+        location: locationCoords || undefined,
+        voiceTranscript: transcript || expenseTitle,
+        structuredAnswers: [
+          { question: language === 'mr' ? 'खर्चाचा प्रकार' : 'Expense Category', answer: cat.mr },
+        ],
+        expenses: [{ id: `exp_${Date.now()}`, title: cat.mr, amount, category: cat.category }],
+        totalExpense: amount,
+        notes: notes.trim() || `${cat.mr} चा ₹ ${amount} खर्च नोंदवला.`,
+        aiSummary: `${cropName} साठी ${cat.mr} चा ₹ ${amount} खर्च नोंदवला.`,
+      });
+
+      // Spoken reassurance
+      if (Speech) {
+        const spokenMsg = language === 'mr'
+          ? `रुपये ${amount} खर्च रोजनिशीमध्ये सुरक्षित सेव्ह झाला आहे.`
+          : language === 'hi'
+            ? `रुपये ${amount} खर्च सुरक्षित दर्ज हो गया है।`
+            : `Expense of rupees ${amount} saved successfully.`;
+        Speech.speak(spokenMsg, { language: language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-IN' });
+      }
+
+      Alert.alert(
+        language === 'mr' ? '✅ खर्च नोंदवला!' : language === 'hi' ? '✅ खर्च दर्ज हुआ!' : '✅ Expense Recorded!',
+        language === 'mr'
+          ? `₹ ${amount} खर्च रोजनिशीमध्ये सुरक्षित जतन झाला.`
+          : `Expense of ₹ ${amount} saved successfully.`,
+        [
+          {
+            text: language === 'mr' ? 'ठीक आहे' : 'OK',
+            onPress: () => router.replace('/(tabs)/market'),
+          },
+        ]
+      );
+    } catch (err) {
+      console.error('Save expense error:', err);
+      Alert.alert('त्रुटी', 'खर्च सेव्ह करताना समस्या आली. कृपया पुन्हा प्रयत्न करा.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Final Confirmation & Save (from AI Review Step)
   const handleSaveActivityRecord = async () => {
+    if (!photoUri) {
+      Alert.alert(
+        language === 'mr' ? 'फोटो आवश्यक आहे' : language === 'hi' ? 'फोटो अनिवार्य है' : 'Photo Required',
+        language === 'mr'
+          ? 'नोंद जतन करण्यासाठी शेतातील पिकाचा कॅमेऱ्याने थेट फोटो जोडणे अनिवार्य आहे.'
+          : language === 'hi'
+            ? 'रिकॉर्ड सुरक्षित करने के लिए खेत का कैमरे से सीधा फोटो जोड़ना अनिवार्य है।'
+            : 'A live camera photo of the field/crop is mandatory to save this record.'
+      );
+      return;
+    }
+
     setIsSaving(true);
     try {
       let finalPhotoPath = photoUri || undefined;
@@ -416,195 +645,417 @@ export default function AddActivityScreen() {
               else router.back();
             }}
             activeOpacity={0.7}>
-            <Ionicons name="arrow-back" size={22} color="#0f172a" />
+            <ArrowLeft size={24} color="#0f172a" />
           </TouchableOpacity>
 
           <View style={{ flex: 1, marginLeft: 12 }}>
             <Text style={styles.screenMainTitle}>
-              {language === 'mr' ? 'नवीन शेती नोंद करा' : language === 'hi' ? 'नई कृषि गतिविधि दर्ज करें' : 'Record Farming Activity'}
+              {language === 'mr' ? 'नवीन नोंद करा' : language === 'hi' ? 'नई प्रविष्टि दर्ज करें' : 'New Farm Record'}
             </Text>
             <Text style={styles.screenStepSubtitle}>
               {currentStep === 'photo_voice'
-                ? language === 'mr' ? 'पायरी १: फोटो व आवाज' : 'Step 1: Photo & Voice'
+                ? entryMode === 'activity'
+                  ? language === 'mr' ? 'शेती काम नोंदवत आहात' : 'Recording Farm Activity'
+                  : language === 'mr' ? 'शेती खर्च नोंदवत आहात' : 'Recording Farm Expense'
                 : currentStep === 'ai_questions'
-                  ? language === 'mr' ? `पायरी २: AI प्रश्नोत्तरे (${questionIndex}/३)` : `Step 2: AI Q&A (${questionIndex}/3)`
-                  : language === 'mr' ? 'पायरी ३: पडताळणी व जतन' : 'Step 3: Review & Save'}
+                  ? language === 'mr' ? `AI सल्ला व प्रश्न (${questionIndex}/३)` : `AI Q&A (${questionIndex}/3)`
+                  : language === 'mr' ? 'पडताळणी व जतन' : 'Review & Save'}
             </Text>
           </View>
         </View>
 
         {/* ========================================================================= */}
-        {/* STEP 1: PHOTO + GPS + VOICE INPUT */}
+        {/* STEP 1: SUPER-HANDY DUAL MODE (FARM ACTIVITY & EXPENSE)                   */}
         {/* ========================================================================= */}
         {currentStep === 'photo_voice' && (
           <View>
-            {/* 1. Photo Capture Box */}
-            <View style={styles.cardBox}>
-              <Text style={styles.cardHeaderTitle}>
-                {language === 'mr' ? '१. कामाचा फोटो (Photograph)' : '1. Photograph of Activity'}
-              </Text>
-              <Text style={styles.cardHeaderSub}>
-                {language === 'mr' ? 'शेतातील पिकाचा किंवा कामाचा स्पष्ट फोटो काढा' : 'Capture field photo'}
-              </Text>
-
-              {photoUri ? (
-                <View style={styles.photoPreviewWrapper}>
-                  <Image source={{ uri: photoUri }} style={styles.photoPreviewImg} />
-                  <TouchableOpacity
-                    style={styles.retakePhotoBtn}
-                    onPress={handleTakePhoto}
-                    activeOpacity={0.8}>
-                    <Ionicons name="camera-reverse" size={16} color="#ffffff" />
-                    <Text style={styles.retakePhotoText}>
-                      {language === 'mr' ? 'दुसरा फोटो काढा' : 'Retake'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <View style={styles.photoActionsRow}>
-                  <TouchableOpacity
-                    style={styles.cameraBigBtn}
-                    onPress={handleTakePhoto}
-                    activeOpacity={0.8}>
-                    <Ionicons name="camera" size={32} color="#ffffff" />
-                    <Text style={styles.cameraBigBtnText}>
-                      {language === 'mr' ? 'कॅमेरा उघडा' : 'Take Photo'}
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.galleryPickBtn}
-                    onPress={handlePickPhoto}
-                    activeOpacity={0.8}>
-                    <Ionicons name="images" size={24} color="#15803d" />
-                    <Text style={styles.galleryPickBtnText}>
-                      {language === 'mr' ? 'गॅलरीतून निवडा' : 'Choose Gallery'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-
-            {/* 2. GPS Location & Date Box */}
-            <View style={styles.cardBox}>
-              <View style={styles.locDateRow}>
-                <View style={styles.locItem}>
-                  <Ionicons
-                    name="location"
-                    size={20}
-                    color={locationStatus === 'granted' ? '#15803d' : '#94a3b8'}
-                  />
-                  <View style={{ marginLeft: 6 }}>
-                    <Text style={styles.locDateLabel}>
-                      {language === 'mr' ? 'स्थान (GPS)' : 'Location'}
-                    </Text>
-                    <Text style={styles.locDateVal}>
-                      {locationCoords?.placeName || (locationStatus === 'granted' ? 'स्थान उपलब्ध' : 'स्थान बंद आहे')}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.dateItem}>
-                  <Ionicons name="calendar-outline" size={20} color="#0284c7" />
-                  <View style={{ marginLeft: 6 }}>
-                    <Text style={styles.locDateLabel}>
-                      {language === 'mr' ? 'तारीख' : 'Date'}
-                    </Text>
-                    <Text style={styles.locDateVal}>{recordedDate.split('T')[0]}</Text>
-                  </View>
-                </View>
-              </View>
-            </View>
-
-            {/* 3. Crop Selector (Optional helper) */}
-            <View style={styles.cardBox}>
-              <Text style={styles.cardHeaderTitle}>
-                {language === 'mr' ? '२. संबंधित पीक निवडा (Crop)' : '2. Select Crop'}
-              </Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
-                {availableCrops.map((c) => {
-                  const isSel = selectedCrop?.id === c.id;
-                  return (
-                    <TouchableOpacity
-                      key={c.id}
-                      style={[styles.cropSelectChip, isSel && styles.cropSelectChipActive]}
-                      onPress={() => setSelectedCrop(c)}
-                      activeOpacity={0.8}>
-                      <Text
-                        style={[
-                          styles.cropSelectChipText,
-                          isSel && styles.cropSelectChipTextActive,
-                        ]}>
-                        {c.name} ({c.area})
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
-
-            {/* 4. Natural Voice Speaking Box */}
-            <View style={styles.cardBox}>
-              <Text style={styles.cardHeaderTitle}>
-                {language === 'mr' ? '३. काय काम केले ते सांगा (Voice / Text)' : '3. Speak What You Did'}
-              </Text>
-              <Text style={styles.cardHeaderSub}>
-                {language === 'mr'
-                  ? 'उदा. "आज मी टोमॅटोची लागवड केली आणि ६ मजूर होते."'
-                  : 'e.g. "Today I planted tomatoes with 6 workers."'}
-              </Text>
-
-              {/* Big Mic Button */}
+            {/* 1. Mode Switcher Bar */}
+            <View style={styles.entryModeRow}>
               <TouchableOpacity
-                style={[styles.voiceSpeakBanner, isRecordingVoice && styles.voiceSpeakBannerActive]}
-                onPress={handleToggleVoiceInput}
-                activeOpacity={0.85}>
-                <View style={[styles.micBigPulse, isRecordingVoice && styles.micBigPulseActive]}>
-                  <Ionicons name="mic" size={32} color="#ffffff" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.voiceSpeakTitle}>
-                    {isRecordingVoice
-                      ? language === 'mr' ? '🔴 आवाज रेकॉर्ड होत आहे...' : '🔴 Recording voice...'
-                      : language === 'mr' ? '🎙️ येथे टॅप करून बोला' : '🎙️ Tap to Speak'}
-                  </Text>
-                  <Text style={styles.voiceSpeakSub}>
-                    {language === 'mr'
-                      ? 'मराठी, हिंदी किंवा इंग्रजीत बोला'
-                      : 'Speak in Marathi, Hindi, or English'}
-                  </Text>
-                </View>
+                style={[styles.entryModeTab, entryMode === 'activity' && styles.entryModeTabActive]}
+                onPress={() => setEntryMode('activity')}
+                activeOpacity={0.8}>
+                <Sprout size={20} color={entryMode === 'activity' ? '#ffffff' : '#15803d'} />
+                <Text style={[styles.entryModeTabText, entryMode === 'activity' && styles.entryModeTabTextActive]}>
+                  {language === 'mr' ? '🌾 शेती काम' : language === 'hi' ? '🌾 कृषि काम' : '🌾 Farm Work'}
+                </Text>
               </TouchableOpacity>
 
-              {/* Editable Transcript Text Area */}
-              <View style={styles.transcriptInputBox}>
-                <Text style={styles.transcriptLabel}>
-                  {language === 'mr' ? 'तुमचे वाक्य (बदल करू शकता):' : 'Transcript (Editable):'}
+              <TouchableOpacity
+                style={[styles.entryModeTab, entryMode === 'expense' && styles.entryModeTabActive]}
+                onPress={() => setEntryMode('expense')}
+                activeOpacity={0.8}>
+                <Coins size={20} color={entryMode === 'expense' ? '#ffffff' : '#15803d'} />
+                <Text style={[styles.entryModeTabText, entryMode === 'expense' && styles.entryModeTabTextActive]}>
+                  {language === 'mr' ? '💰 शेती खर्च' : language === 'hi' ? '💰 खेती खर्च' : '💰 Farm Expense'}
                 </Text>
-                <TextInput
-                  style={styles.transcriptTextInput}
-                  value={transcript}
-                  onChangeText={setTranscript}
-                  placeholder={
-                    language === 'mr'
-                      ? 'येथे टाईप करा किंवा वरील माइक दाबून बोला...'
-                      : 'Type here or tap microphone to speak...'
-                  }
-                  placeholderTextColor="#94a3b8"
-                  multiline
-                />
-              </View>
+              </TouchableOpacity>
             </View>
 
-            {/* Proceed to AI Questions Button */}
-            <TouchableOpacity
-              style={styles.proceedNextBtn}
-              onPress={handleProceedToAiQuestions}
-              activeOpacity={0.85}>
-              <Text style={styles.proceedNextBtnText}>
-                {language === 'mr' ? 'पुढे जा व AI प्रश्न विचारा →' : 'Proceed to AI Questions →'}
-              </Text>
-            </TouchableOpacity>
+            {/* ============================================================ */}
+            {/* MODE A: 🌾 FARM ACTIVITY (शेती काम)                           */}
+            {/* ============================================================ */}
+            {entryMode === 'activity' && (
+              <View>
+                {/* 1. Instant Preset Activity Grid (1-Tap Selection) */}
+                <View style={styles.cardBox}>
+                  <Text style={styles.cardHeaderTitle}>
+                    {language === 'mr' ? '१. कामाचा प्रकार निवडा (१-टॅप):' : '1. Select Activity (1-Tap):'}
+                  </Text>
+                  <Text style={styles.cardHeaderSub}>
+                    {language === 'mr' ? 'तुम्ही शेतात काय काम केले त्यावर दाबा' : 'Tap on the activity performed'}
+                  </Text>
+
+                  <View style={styles.presetsGrid}>
+                    {ACTIVITY_PRESETS.map((preset) => {
+                      const isSel = selectedPresetId === preset.id;
+                      const label = language === 'mr' ? preset.mr : language === 'hi' ? preset.hi : preset.en;
+                      return (
+                        <TouchableOpacity
+                          key={preset.id}
+                          style={[styles.presetCard, isSel && styles.presetCardActive]}
+                          onPress={() => setSelectedPresetId(preset.id)}
+                          activeOpacity={0.8}>
+                          <View style={[styles.presetIconWrap, isSel && styles.presetIconWrapActive]}>
+                            {renderPresetIcon(preset.id, isSel ? '#ffffff' : '#15803d')}
+                          </View>
+                          <Text style={[styles.presetTitle, isSel && styles.presetTitleActive]} numberOfLines={1}>
+                            {label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* 2. Crop Selector */}
+                <View style={styles.cardBox}>
+                  <Text style={styles.cardHeaderTitle}>
+                    {language === 'mr' ? '२. संबंधित पीक निवडा:' : '2. Select Crop:'}
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                    {availableCrops.map((c) => {
+                      const isSel = selectedCrop?.id === c.id;
+                      return (
+                        <TouchableOpacity
+                          key={c.id}
+                          style={[styles.cropSelectChip, isSel && styles.cropSelectChipActive]}
+                          onPress={() => setSelectedCrop(c)}
+                          activeOpacity={0.8}>
+                          <Text style={[styles.cropSelectChipText, isSel && styles.cropSelectChipTextActive]}>
+                            🌾 {c.name} ({c.area})
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+
+                {/* 3. Photo & GPS (MANDATORY - CAMERA ONLY) */}
+                <View style={[styles.cardBox, !photoUri && styles.cardBoxRequiredAlert]}>
+                  <View style={styles.cardHeaderTitleRow}>
+                    <Text style={styles.cardHeaderTitle}>
+                      {language === 'mr'
+                        ? '३. शेतातील फोटो काढा (आवश्यक *):'
+                        : language === 'hi'
+                          ? '३. खेत की फोटो खींचें (अनिवार्य *):'
+                          : '3. Field Camera Photo (Mandatory *):'}
+                    </Text>
+                    <View style={styles.requiredBadge}>
+                      <Text style={styles.requiredBadgeText}>
+                        {language === 'mr' ? 'कॅमेरा आवश्यक' : language === 'hi' ? 'कैमरा अनिवार्य' : 'Camera Only'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.photoMandatoryHint}>
+                    {language === 'mr'
+                      ? '⚠️ खात्रीसाठी थेट कॅमेऱ्याने शेताचा/पिकाचा फोटो काढणे अनिवार्य आहे (गॅलरी चालणार नाही).'
+                      : language === 'hi'
+                        ? '⚠️ प्रमाण के लिए सीधे कैमरे से खेत/फसल की फोटो लेना अनिवार्य है (गैलरी मान्य नहीं)।'
+                        : '⚠️ Live field photo using device camera is mandatory for verification (Gallery not allowed).'}
+                  </Text>
+                  {photoUri ? (
+                    <View style={styles.photoPreviewWrapper}>
+                      <Image source={{ uri: photoUri }} style={styles.photoPreviewImg} />
+                      <View style={styles.photoVerifiedBadge}>
+                        <CheckCircle2 size={16} color="#15803d" />
+                        <Text style={styles.photoVerifiedText}>
+                          {language === 'mr' ? 'कॅमेरा फोटो जोडला' : language === 'hi' ? 'कैमरा फोटो संलंग्न' : 'Camera Photo Attached'}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.retakePhotoBtn}
+                        onPress={handleTakePhoto}
+                        activeOpacity={0.8}>
+                        <RefreshCw size={16} color="#ffffff" />
+                        <Text style={styles.retakePhotoText}>
+                          {language === 'mr' ? 'दुसरा फोटो काढा' : language === 'hi' ? 'दोबारा फोटो लें' : 'Retake'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.photoActionsRow}>
+                      <TouchableOpacity
+                        style={styles.cameraBigBtn}
+                        onPress={handleTakePhoto}
+                        activeOpacity={0.85}>
+                        <Camera size={36} color="#ffffff" />
+                        <Text style={styles.cameraBigBtnText}>
+                          {language === 'mr'
+                            ? '📸 कॅमेरा उघडा आणि फोटो काढा'
+                            : language === 'hi'
+                              ? '📸 कैमरा खोलें और फोटो खींचें'
+                              : '📸 Open Camera & Take Photo'}
+                        </Text>
+                        <Text style={styles.cameraBigBtnSubtext}>
+                          {language === 'mr'
+                            ? 'थेट शेतातून फोटो काढण्यासाठी येथे दाबा'
+                            : language === 'hi'
+                              ? 'सीधे खेत से फोटो लेने के लिए यहां दबाएं'
+                              : 'Tap to capture live field photo'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+
+                {/* 4. Natural Voice Speaking / Notes */}
+                <View style={styles.cardBox}>
+                  <Text style={[styles.cardHeaderTitle, { marginBottom: 12 }]}>
+                    {language === 'mr' ? '४. बोलून नोंद करा किंवा ऐका:' : '4. Speak or Record:'}
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.voiceSpeakBanner, isRecordingVoice && styles.voiceSpeakBannerActive]}
+                    onPress={handleToggleVoiceInput}
+                    activeOpacity={0.85}>
+                    <View style={[styles.micBigPulse, isRecordingVoice && styles.micBigPulseActive]}>
+                      <Mic size={28} color="#ffffff" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.voiceSpeakTitle}>
+                        {isRecordingVoice
+                          ? language === 'mr' ? '🔴 आवाज रेकॉर्ड होत आहे...' : '🔴 Recording voice...'
+                          : language === 'mr' ? '🎙️ येथे टॅप करून बोला' : '🎙️ Tap to Speak'}
+                      </Text>
+                      <Text style={styles.voiceSpeakSub}>
+                        {transcript ? `"${transcript}"` : language === 'mr' ? 'मराठी किंवा हिंदीत बोला' : 'Speak in Marathi/Hindi'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Optional Labor / Chemical Cost */}
+                  <View style={{ marginTop: 12 }}>
+                    <Text style={styles.locDateLabel}>
+                      {language === 'mr' ? 'या कामाचा खर्च (मजुरी/खत) असल्यास टाका:' : 'Expense for this activity (Optional):'}
+                    </Text>
+                    <View style={styles.inlineExpenseInputRow}>
+                      <Text style={styles.currencySymbolInline}>₹</Text>
+                      <TextInput
+                        style={styles.inlineExpenseInput}
+                        value={activityExpenseInput}
+                        onChangeText={setActivityExpenseInput}
+                        keyboardType="numeric"
+                        placeholder="०"
+                        placeholderTextColor="#94a3b8"
+                      />
+                    </View>
+                  </View>
+                </View>
+
+                {/* 5. ⭐ PRIMARY SAVE BUTTON (DIRECT 1-TAP SAVE) */}
+                <TouchableOpacity
+                  style={styles.directSaveGreenBtn}
+                  onPress={handleDirectSaveActivity}
+                  disabled={isSaving}
+                  activeOpacity={0.88}>
+                  {isSaving ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <>
+                      <CheckCircle2 size={24} color="#ffffff" strokeWidth={2.2} />
+                      <Text style={styles.directSaveGreenBtnText}>
+                        {language === 'mr' ? 'शेती काम जतन करा' : language === 'hi' ? 'कार्य दर्ज करें' : 'Save Farm Activity'}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                {/* 6. Optional AI Guided Q&A Assistant */}
+                <TouchableOpacity
+                  style={styles.aiGuidanceBtn}
+                  onPress={handleProceedToAiQuestions}
+                  activeOpacity={0.8}>
+                  <Sparkles size={18} color="#15803d" />
+                  <Text style={styles.aiGuidanceBtnText}>
+                    {language === 'mr' ? '🤖 AI कडून सविस्तर सल्ला घ्या →' : '🤖 Get Guided AI Advice →'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* ============================================================ */}
+            {/* MODE B: 💰 FARM EXPENSE (शेती खर्च)                          */}
+            {/* ============================================================ */}
+            {entryMode === 'expense' && (
+              <View>
+                {/* 1. Large Amount Input */}
+                <View style={styles.cardBox}>
+                  <Text style={styles.cardHeaderTitle}>
+                    {language === 'mr' ? '१. खर्चाची रक्कम टाका (रुपये):' : '1. Enter Expense Amount:'}
+                  </Text>
+
+                  <View style={styles.expenseAmountDisplayBox}>
+                    <Text style={styles.currencySymbolLarge}>₹</Text>
+                    <TextInput
+                      style={styles.largeAmountInput}
+                      value={expenseAmountStr}
+                      onChangeText={setExpenseAmountStr}
+                      keyboardType="numeric"
+                      placeholder="०"
+                      placeholderTextColor="#cbd5e1"
+                      autoFocus
+                    />
+                  </View>
+
+                  {/* Quick Addition Chips */}
+                  <View style={styles.quickAmountRow}>
+                    {['500', '1000', '2000', '5000'].map((amt) => (
+                      <TouchableOpacity
+                        key={amt}
+                        style={styles.quickAmountChip}
+                        onPress={() => {
+                          const cur = parseFloat(expenseAmountStr) || 0;
+                          setExpenseAmountStr(String(cur + parseInt(amt, 10)));
+                        }}
+                        activeOpacity={0.75}>
+                        <Text style={styles.quickAmountChipText}>+₹{amt}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    <TouchableOpacity
+                      style={[styles.quickAmountChip, { backgroundColor: '#fee2e2', borderColor: '#fca5a5' }]}
+                      onPress={() => setExpenseAmountStr('')}
+                      activeOpacity={0.75}>
+                      <Text style={[styles.quickAmountChipText, { color: '#dc2626' }]}>Clear</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* 2. Expense Category Grid (1-Tap Selection) */}
+                <View style={styles.cardBox}>
+                  <Text style={styles.cardHeaderTitle}>
+                    {language === 'mr' ? '२. कशावर खर्च झाला?' : '2. Expense Category:'}
+                  </Text>
+
+                  <View style={styles.presetsGrid}>
+                    {EXPENSE_CATEGORIES.map((cat) => {
+                      const isSel = selectedExpenseCat === cat.id;
+                      const label = language === 'mr' ? cat.mr : language === 'hi' ? cat.hi : cat.en;
+                      return (
+                        <TouchableOpacity
+                          key={cat.id}
+                          style={[styles.presetCard, isSel && styles.presetCardActive]}
+                          onPress={() => setSelectedExpenseCat(cat.id)}
+                          activeOpacity={0.8}>
+                          <View style={[styles.presetIconWrap, isSel && styles.presetIconWrapActive]}>
+                            {renderExpenseIcon(cat.category, isSel ? '#ffffff' : '#ca8a04')}
+                          </View>
+                          <Text style={[styles.presetTitle, isSel && styles.presetTitleActive]} numberOfLines={1}>
+                            {label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* 3. Crop Selector */}
+                <View style={styles.cardBox}>
+                  <Text style={styles.cardHeaderTitle}>
+                    {language === 'mr' ? '३. कोणत्या पिकासाठी खर्च झाला?' : '3. For Which Crop:'}
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                    {availableCrops.map((c) => {
+                      const isSel = selectedCrop?.id === c.id;
+                      return (
+                        <TouchableOpacity
+                          key={c.id}
+                          style={[styles.cropSelectChip, isSel && styles.cropSelectChipActive]}
+                          onPress={() => setSelectedCrop(c)}
+                          activeOpacity={0.8}>
+                          <Text style={[styles.cropSelectChipText, isSel && styles.cropSelectChipTextActive]}>
+                            🌾 {c.name} ({c.area})
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+
+                {/* 4. Receipt Photo (Camera Only) */}
+                <View style={styles.cardBox}>
+                  <Text style={styles.cardHeaderTitle}>
+                    {language === 'mr'
+                      ? '४. पावती किंवा बिलाचा थेट फोटो (कॅमेरा):'
+                      : language === 'hi'
+                        ? '४. रसीद / बिल का फोटो (कैमरा):'
+                        : '4. Bill Photo (Camera Only):'}
+                  </Text>
+                  {photoUri ? (
+                    <View style={styles.photoPreviewWrapper}>
+                      <Image source={{ uri: photoUri }} style={styles.photoPreviewImg} />
+                      <View style={styles.photoVerifiedBadge}>
+                        <CheckCircle2 size={16} color="#15803d" />
+                        <Text style={styles.photoVerifiedText}>
+                          {language === 'mr' ? 'बिल जोडले' : language === 'hi' ? 'बिल संलंग्न' : 'Bill Attached'}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.retakePhotoBtn}
+                        onPress={handleTakePhoto}
+                        activeOpacity={0.8}>
+                        <RefreshCw size={16} color="#ffffff" />
+                        <Text style={styles.retakePhotoText}>
+                          {language === 'mr' ? 'दुसरा फोटो काढा' : 'Retake'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.photoActionsRow}>
+                      <TouchableOpacity
+                        style={styles.cameraBigBtn}
+                        onPress={handleTakePhoto}
+                        activeOpacity={0.85}>
+                        <Camera size={32} color="#ffffff" />
+                        <Text style={styles.cameraBigBtnText}>
+                          {language === 'mr' ? '📸 कॅमेऱ्याने बिल स्कॅन करा' : language === 'hi' ? '📸 कैमरे से बिल फोटो लें' : '📸 Scan Bill with Camera'}
+                        </Text>
+                        <Text style={styles.cameraBigBtnSubtext}>
+                          {language === 'mr' ? 'थेट पावतीचा फोटो काढण्यासाठी दाबा' : language === 'hi' ? 'सीधे रसीद का फोटो लेने के लिए दबाएं' : 'Tap to capture bill photo'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+
+                {/* 5. ⭐ PRIMARY SAVE BUTTON (DIRECT 1-TAP EXPENSE SAVE) */}
+                <TouchableOpacity
+                  style={styles.directSaveGreenBtn}
+                  onPress={handleDirectSaveExpense}
+                  disabled={isSaving}
+                  activeOpacity={0.88}>
+                  {isSaving ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <>
+                      <CheckCircle2 size={24} color="#ffffff" strokeWidth={2.2} />
+                      <Text style={styles.directSaveGreenBtnText}>
+                        {language === 'mr' ? 'खर्च जतन करा' : language === 'hi' ? 'खर्च सहेजें' : 'Save Expense Record'}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         )}
 
@@ -616,7 +1067,7 @@ export default function AddActivityScreen() {
             {/* Conversation Messages Stack */}
             <View style={styles.conversationWrap}>
               <View style={styles.aiBadgeBanner}>
-                <Ionicons name="sparkles" size={16} color="#15803d" />
+                <Sparkles size={16} color="#15803d" />
                 <Text style={styles.aiBadgeBannerText}>
                   {language === 'mr'
                     ? `AI ने ओळखले: ${detectedCropName} • ${detectedActivityType}`
@@ -639,7 +1090,7 @@ export default function AddActivityScreen() {
                       <TouchableOpacity
                         onPress={() => speakText(msg.text)}
                         style={{ padding: 2 }}>
-                        <Ionicons name="volume-high" size={16} color="#15803d" />
+                        <Volume2 size={16} color="#15803d" />
                       </TouchableOpacity>
                     )}
                   </View>
@@ -678,7 +1129,7 @@ export default function AddActivityScreen() {
                   style={styles.answerSendBtn}
                   onPress={() => handleSendAnswer()}
                   activeOpacity={0.8}>
-                  <Ionicons name="send" size={18} color="#ffffff" />
+                  <Send size={18} color="#ffffff" />
                 </TouchableOpacity>
               </View>
 
@@ -690,7 +1141,7 @@ export default function AddActivityScreen() {
                     setFarmerAnswerInput(language === 'mr' ? '६ मजूर होते आणि ₹ १८०० खर्च झाला.' : '6 workers and 1800 cost.');
                   }}
                   activeOpacity={0.7}>
-                  <Ionicons name="mic" size={16} color="#15803d" />
+                  <Mic size={16} color="#15803d" />
                   <Text style={styles.quickVoiceAnswerText}>
                     {language === 'mr' ? 'बोलून सांगा' : 'Speak Answer'}
                   </Text>
@@ -725,7 +1176,7 @@ export default function AddActivityScreen() {
           <View>
             {/* Header Success Notice */}
             <View style={styles.reviewNoticeCard}>
-              <Ionicons name="checkmark-circle" size={24} color="#15803d" />
+              <CheckCircle2 size={24} color="#15803d" />
               <View style={{ flex: 1 }}>
                 <Text style={styles.reviewNoticeTitle}>
                   {language === 'mr' ? 'नोंद पडताळणी (Review Record)' : 'Verify Details Before Saving'}
@@ -818,7 +1269,7 @@ export default function AddActivityScreen() {
                 <ActivityIndicator size="small" color="#ffffff" />
               ) : (
                 <>
-                  <Ionicons name="save" size={20} color="#ffffff" />
+                  <Save size={20} color="#ffffff" />
                   <Text style={styles.finalSaveBtnText}>
                     {language === 'mr' ? 'नोंद कायमस्वरूपी जतन करा (Save Record)' : 'Save Record in Diary'}
                   </Text>
@@ -856,9 +1307,9 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#ffffff',
     borderWidth: 1.5,
     borderColor: '#cbd5e1',
@@ -866,15 +1317,203 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   screenMainTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '900',
     color: '#0f172a',
   },
   screenStepSubtitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#15803d',
     marginTop: 1,
+  },
+
+  /* Mode Switcher */
+  entryModeRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  entryModeTab: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    borderWidth: 2,
+    borderColor: '#cbd5e1',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  entryModeTabActive: {
+    backgroundColor: '#15803d',
+    borderColor: '#15803d',
+  },
+  entryModeTabText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#334155',
+  },
+  entryModeTabTextActive: {
+    color: '#ffffff',
+  },
+
+  /* Presets Grid */
+  presetsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 6,
+  },
+  presetCard: {
+    width: '48.5%',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  presetCardActive: {
+    backgroundColor: '#dcfce7',
+    borderColor: '#15803d',
+    borderWidth: 2,
+  },
+  presetIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  presetIconWrapActive: {
+    backgroundColor: '#15803d',
+  },
+  presetTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#1e293b',
+    flex: 1,
+  },
+  presetTitleActive: {
+    color: '#14532d',
+    fontWeight: '900',
+  },
+
+  /* Large Amount Input */
+  expenseAmountDisplayBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderWidth: 2,
+    borderColor: '#cbd5e1',
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginTop: 8,
+  },
+  currencySymbolLarge: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#15803d',
+    marginRight: 8,
+  },
+  largeAmountInput: {
+    flex: 1,
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#0f172a',
+    padding: 0,
+  },
+  quickAmountRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  quickAmountChip: {
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  quickAmountChipText: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+
+  /* Inline Expense Input */
+  inlineExpenseInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 48,
+    marginTop: 6,
+  },
+  currencySymbolInline: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#15803d',
+    marginRight: 6,
+  },
+  inlineExpenseInput: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0f172a',
+    padding: 0,
+  },
+
+  /* Direct Save Button */
+  directSaveGreenBtn: {
+    backgroundColor: '#15803d',
+    borderRadius: 18,
+    height: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: 6,
+    marginBottom: 12,
+    elevation: 4,
+    shadowColor: '#15803d',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+  },
+  directSaveGreenBtnText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  aiGuidanceBtn: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: '#86efac',
+    borderRadius: 16,
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 20,
+  },
+  aiGuidanceBtnText: {
+    color: '#15803d',
+    fontSize: 15,
+    fontWeight: '800',
   },
 
   /* Card Box */
@@ -891,13 +1530,43 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 2,
   },
+  cardBoxRequiredAlert: {
+    borderColor: '#fca5a5',
+    backgroundColor: '#fffcfc',
+  },
+  cardHeaderTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   cardHeaderTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '900',
     color: '#0f172a',
   },
-  cardHeaderSub: {
+  requiredBadge: {
+    backgroundColor: '#fee2e2',
+    borderWidth: 1,
+    borderColor: '#fca5a5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  requiredBadgeText: {
+    color: '#b91c1c',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  photoMandatoryHint: {
     fontSize: 12,
+    fontWeight: '600',
+    color: '#b45309',
+    marginBottom: 10,
+    lineHeight: 17,
+  },
+  cardHeaderSub: {
+    fontSize: 13,
     fontWeight: '600',
     color: '#64748b',
     marginTop: 2,
@@ -907,39 +1576,55 @@ const styles = StyleSheet.create({
   /* Photo Actions */
   photoActionsRow: {
     flexDirection: 'row',
-    gap: 10,
+    width: '100%',
   },
   cameraBigBtn: {
-    flex: 1,
+    width: '100%',
     backgroundColor: '#15803d',
     borderRadius: 16,
-    padding: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 90,
+    minHeight: 96,
+    shadowColor: '#15803d',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
   },
   cameraBigBtnText: {
     color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 15.5,
+    fontWeight: '900',
     marginTop: 6,
+    textAlign: 'center',
   },
-  galleryPickBtn: {
-    flex: 1,
-    backgroundColor: '#f0fdf4',
-    borderWidth: 1.5,
-    borderColor: '#86efac',
-    borderRadius: 16,
-    padding: 16,
+  cameraBigBtnSubtext: {
+    color: '#dcfce7',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 3,
+    textAlign: 'center',
+  },
+  photoVerifiedBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 90,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#86efac',
   },
-  galleryPickBtnText: {
+  photoVerifiedText: {
     color: '#15803d',
-    fontSize: 14,
+    fontSize: 11.5,
     fontWeight: '800',
-    marginTop: 6,
   },
   photoPreviewWrapper: {
     borderRadius: 14,
