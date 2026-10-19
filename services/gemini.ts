@@ -75,9 +75,11 @@ Return ONLY a valid JSON object without markdown code blocks, backticks, or othe
 
   // We try active v1beta models verified for this API key
   const modelEndpoints = [
+    'gemini-3.8-flash',
     'gemini-3.5-flash',
-    'gemini-flash-latest',
     'gemini-3.5-flash-lite',
+    'gemini-3.7-flash',
+    'gemini-3.6-flash',
     'gemini-flash-lite-latest',
   ];
 
@@ -303,9 +305,11 @@ Keep answers structured, clear, friendly, and easy to understand.`;
   }
 
   const modelEndpoints = [
+    'gemini-3.8-flash',
     'gemini-3.5-flash',
-    'gemini-flash-latest',
     'gemini-3.5-flash-lite',
+    'gemini-3.7-flash',
+    'gemini-3.6-flash',
     'gemini-flash-lite-latest',
   ];
 
@@ -377,9 +381,11 @@ Return ONLY a valid JSON object without markdown code blocks, backticks, or othe
 `;
 
   const modelEndpoints = [
+    'gemini-3.8-flash',
     'gemini-3.5-flash',
-    'gemini-flash-latest',
     'gemini-3.5-flash-lite',
+    'gemini-3.7-flash',
+    'gemini-3.6-flash',
     'gemini-flash-lite-latest',
   ];
 

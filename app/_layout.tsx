@@ -82,6 +82,7 @@ function RootLayoutNav() {
         <Stack.Screen name="tasks" options={{ headerShown: false }} />
         <Stack.Screen name="notifications" options={{ headerShown: false }} />
         <Stack.Screen name="weather" options={{ headerShown: false }} />
+        <Stack.Screen name="app-settings" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
       </Stack>
     </View>

@@ -1,21 +1,45 @@
-import { useColorScheme } from '@/components/useColorScheme';
-import Colors from '@/constants/Colors';
 import { useLanguage } from '@/context/LanguageContext';
 import { useUserLocation } from '@/context/LocationContext';
+import {
+  ActivityRecord,
+  Crop,
+  deleteActivity,
+  getActivities,
+  getCrops,
+  syncActivitiesWithCloud,
+} from '@/services/diaryStorage';
 import {
   fetchLiveMandiPrices,
   MandiFetchResult,
   MandiPriceItem,
 } from '@/services/mandi';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import {
+  Clock,
+  MapPin,
+  ChevronDown,
+  Bell,
+  Volume2,
+  Square,
+  Sparkles,
+  Search,
+  XCircle,
+  X,
+  BookOpen,
+  PlusCircle,
+  Trash2,
+  MessageSquare,
+  RefreshCw,
+  AlertCircle,
+  CheckCircle2,
+  BarChart3,
+} from 'lucide-react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
-  ImageBackground,
   Modal,
-  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -24,94 +48,57 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import Svg, { Circle, Defs, Line, LinearGradient, Path, Stop } from 'react-native-svg';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Speech from 'expo-speech';
+import { createAudioPlayer, AudioPlayer } from 'expo-audio';
 
-export default function MarketScreen() {
-  const colorScheme = useColorScheme();
-  const theme = Colors[colorScheme ?? 'light'];
-  const { t } = useLanguage();
+export default function HistoryMarketScreen() {
+  const insets = useSafeAreaInsets();
+  const { language } = useLanguage();
   const { location, setShowLocationModal } = useUserLocation();
 
-  // Active filter pill
-  const [activePill, setActivePill] = useState<'prices' | 'mandis' | 'trends' | 'trade'>('prices');
-  // Selected crop for trend chart
-  const [selectedTrendCrop, setSelectedTrendCrop] = useState('Soybean');
-  const [timeRange, setTimeRange] = useState('Last 3 Months');
+  // Mode: 'history' (Farming History / नोंदी) | 'mandi' (Live Mandi Prices)
+  const [activeMode, setActiveMode] = useState<'history' | 'mandi'>('history');
 
-  const filterTabs = [
-    { key: 'prices', label: t.filterCropPrices, icon: 'bar-chart' as const, isMCI: false },
-    { key: 'mandis', label: t.filterNearbyMandis, icon: 'location-outline' as const, isMCI: false },
-    { key: 'trends', label: t.filterPriceTrends, icon: 'trending-up' as const, isMCI: false },
-    { key: 'trade', label: t.filterTrade, icon: 'cart-outline' as const, isMCI: false },
-  ];
-
-  // Live Mandi State from data.gov.in
-  const [mandiItems, setMandiItems] = useState<MandiPriceItem[]>([]);
-  const [isLoadingMandi, setIsLoadingMandi] = useState(true);
+  // --- Dynamic Activities State ---
+  const [activities, setActivities] = useState<ActivityRecord[]>([]);
+  const [crops, setCrops] = useState<Crop[]>([]);
+  const [isLoadingActivities, setIsLoadingActivities] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Filters & Search for History
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCropFilter, setSelectedCropFilter] = useState<string>('all');
+  const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('all');
+  const [speakingActivityId, setSpeakingActivityId] = useState<string | null>(null);
+  const currentAudioPlayerRef = useRef<AudioPlayer | null>(null);
+
+  // Clean up audio on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        if (Speech) Speech.stop();
+        if (currentAudioPlayerRef.current) {
+          currentAudioPlayerRef.current.pause();
+          currentAudioPlayerRef.current.remove();
+          currentAudioPlayerRef.current = null;
+        }
+      } catch { }
+    };
+  }, []);
+
+  // --- Live Mandi State ---
+  const [mandiItems, setMandiItems] = useState<MandiPriceItem[]>([]);
+  const [isLoadingMandi, setIsLoadingMandi] = useState(false);
+  const [selectedDistrict, setSelectedDistrict] = useState('Jalgaon');
+  const [showDistrictModal, setShowDistrictModal] = useState(false);
+  const [mandiSearch, setMandiSearch] = useState('');
+  const [selectedMandiDetail, setSelectedMandiDetail] = useState<MandiPriceItem | null>(null);
   const [mandiStatus, setMandiStatus] = useState({
     isLive: false,
     lastUpdated: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     source: 'data.gov.in (Agmarknet)',
   });
-  const [selectedDistrict, setSelectedDistrict] = useState('Jalgaon');
-  const [showDistrictModal, setShowDistrictModal] = useState(false);
-  const [mandiSearch, setMandiSearch] = useState('');
-  const [selectedMandiDetail, setSelectedMandiDetail] = useState<MandiPriceItem | null>(null);
-
-  const getCommodityPrice = (keywords: string[], fallback: string) => {
-    const found = mandiItems.find((item) =>
-      keywords.some(
-        (kw) =>
-          item.commodity.toLowerCase().includes(kw.toLowerCase()) ||
-          item.variety.toLowerCase().includes(kw.toLowerCase())
-      )
-    );
-    return found ? `₹ ${found.modalPrice.toLocaleString('en-IN')}` : fallback;
-  };
-
-  const popularCrops = [
-    {
-      id: '1',
-      name: t.cropSoybean,
-      price: getCommodityPrice(['soybean', 'सोयाबीन'], '₹ 4,800'),
-      change: '↑ 2%',
-      isUp: true,
-      image: 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=300&q=80',
-    },
-    {
-      id: '2',
-      name: t.cropCotton,
-      price: getCommodityPrice(['cotton', 'कापूस'], '₹ 7,200'),
-      change: '↓ 1%',
-      isUp: false,
-      image: 'https://images.unsplash.com/photo-1606041008023-472dfb5e530f?w=300&q=80',
-    },
-    {
-      id: '3',
-      name: t.cropMaize,
-      price: getCommodityPrice(['maize', 'मका', 'corn'], '₹ 2,150'),
-      change: '↑ 3%',
-      isUp: true,
-      image: 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=300&q=80',
-    },
-    {
-      id: '4',
-      name: t.cropOnion,
-      price: getCommodityPrice(['onion', 'कांदा', 'pyaz'], '₹ 1,850'),
-      change: '↑ 5%',
-      isUp: true,
-      image: 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=300&q=80',
-    },
-    {
-      id: '5',
-      name: t.cropWheat,
-      price: getCommodityPrice(['wheat', 'गहू', 'gehun'], '₹ 2,300'),
-      change: '↑ 1%',
-      isUp: true,
-      image: 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=300&q=80',
-    },
-  ];
 
   const districtsList = [
     'Jalgaon',
@@ -126,8 +113,47 @@ export default function MarketScreen() {
     'All Districts',
   ];
 
-  const loadMandiData = async (isRefresh = false) => {
-    if (isRefresh) setIsRefreshing(true);
+  // Load Farming Activities & Crops
+  const loadHistoryData = useCallback(async () => {
+    try {
+      setIsLoadingActivities(true);
+      const [acts, cropList] = await Promise.all([
+        getActivities(),
+        getCrops(),
+      ]);
+      setActivities(acts);
+      setCrops(cropList);
+    } catch (err) {
+      console.warn('Error loading activities:', err);
+    } finally {
+      setIsLoadingActivities(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadHistoryData();
+      // Background sync with Cloud
+      syncActivitiesWithCloud()
+        .then((latest) => {
+          if (latest && latest.length > 0) setActivities(latest);
+        })
+        .catch(() => {});
+    }, [loadHistoryData])
+  );
+
+  // Cleanup speech on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        if (Speech) Speech.stop();
+      } catch {}
+    };
+  }, []);
+
+  // Load Mandi Data
+  const loadMandiData = useCallback(async (isManualRefresh = false) => {
+    if (isManualRefresh) setIsRefreshing(true);
     else setIsLoadingMandi(true);
 
     try {
@@ -135,7 +161,6 @@ export default function MarketScreen() {
         state: 'Maharashtra',
         district: selectedDistrict === 'All Districts' ? undefined : selectedDistrict,
       });
-
       setMandiItems(result.items);
       setMandiStatus({
         isLive: result.isLive,
@@ -148,12 +173,166 @@ export default function MarketScreen() {
       setIsLoadingMandi(false);
       setIsRefreshing(false);
     }
-  };
-
-  useEffect(() => {
-    loadMandiData();
   }, [selectedDistrict]);
 
+  useEffect(() => {
+    if (activeMode === 'mandi') {
+      const timer = setTimeout(() => {
+        loadMandiData();
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [activeMode, loadMandiData]);
+
+  const onRefresh = async () => {
+    setIsRefreshing(true);
+    if (activeMode === 'history') {
+      await loadHistoryData();
+    } else {
+      await loadMandiData(true);
+    }
+    setIsRefreshing(false);
+  };
+
+  // Delete Activity Handler
+  const handleDeleteActivity = (id: string, title: string) => {
+    Alert.alert(
+      language === 'mr' ? 'नोंद हटवा' : language === 'hi' ? 'रिकॉर्ड हटाएं' : 'Delete Record',
+      language === 'mr'
+        ? `तुम्हाला खात्री आहे की "${title}" ही नोंद हटवायची आहे?`
+        : language === 'hi'
+          ? `क्या आप वाकई "${title}" को हटाना चाहते हैं?`
+          : `Are you sure you want to delete "${title}"?`,
+      [
+        { text: language === 'mr' ? 'रद्द करा' : language === 'hi' ? 'रद्द करें' : 'Cancel', style: 'cancel' },
+        {
+          text: language === 'mr' ? 'हटवा' : language === 'hi' ? 'हटाएं' : 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteActivity(id);
+              await loadHistoryData();
+            } catch (err) {
+              console.error('Failed to delete activity:', err);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Voice Recording / Speech Audio for Activity (Plays farmer's voice if available)
+  const handleToggleSpeakActivity = (id: string, textToSpeak: string, audioUri?: string) => {
+    try {
+      // 1. If currently playing this same activity, toggle OFF / stop
+      if (speakingActivityId === id) {
+        if (Speech) Speech.stop();
+        if (currentAudioPlayerRef.current) {
+          currentAudioPlayerRef.current.pause();
+          currentAudioPlayerRef.current.remove();
+          currentAudioPlayerRef.current = null;
+        }
+        setSpeakingActivityId(null);
+        return;
+      }
+
+      // 2. Stop any existing voice or speech playback
+      if (Speech) Speech.stop();
+      if (currentAudioPlayerRef.current) {
+        currentAudioPlayerRef.current.pause();
+        currentAudioPlayerRef.current.remove();
+        currentAudioPlayerRef.current = null;
+      }
+
+      // 3. If farmer's recorded voice exists, PLAY REAL VOICE!
+      if (audioUri) {
+        console.log('▶️ Playing farmer voice recording from audioUri:', audioUri);
+        setSpeakingActivityId(id);
+        const player = createAudioPlayer(audioUri);
+        currentAudioPlayerRef.current = player;
+        player.addListener('playbackStatusUpdate', (status) => {
+          if (status.didJustFinish) {
+            console.log('⏹️ Farmer voice recording finished.');
+            setSpeakingActivityId(null);
+            player.remove();
+            currentAudioPlayerRef.current = null;
+          }
+        });
+        player.play();
+        return;
+      }
+
+      // 4. Fallback to TTS if no recorded audio was attached
+      setSpeakingActivityId(id);
+      const speechLang = language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-IN';
+      Speech.speak(textToSpeak, {
+        language: speechLang,
+        rate: 0.88,
+        pitch: 1.0,
+        onDone: () => setSpeakingActivityId(null),
+        onStopped: () => setSpeakingActivityId(null),
+        onError: () => setSpeakingActivityId(null),
+      });
+    } catch (err) {
+      console.warn('handleToggleSpeakActivity error:', err);
+      setSpeakingActivityId(null);
+    }
+  };
+
+  // Filtered Activities
+  const filteredActivities = activities.filter((act) => {
+    // Crop filter
+    if (selectedCropFilter !== 'all' && act.cropName !== selectedCropFilter && act.cropId !== selectedCropFilter) {
+      return false;
+    }
+    // Activity type filter
+    if (selectedTypeFilter !== 'all' && act.activityType !== selectedTypeFilter) {
+      return false;
+    }
+    // Search query
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const matchTitle = (act.activityTitle || '').toLowerCase().includes(q);
+      const matchCrop = (act.cropName || '').toLowerCase().includes(q);
+      const matchPlot = (act.plotName || '').toLowerCase().includes(q);
+      const matchNotes = (act.notes || '').toLowerCase().includes(q);
+      const matchTranscript = (act.voiceTranscript || '').toLowerCase().includes(q);
+      if (!matchTitle && !matchCrop && !matchPlot && !matchNotes && !matchTranscript) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  // Calculate totals
+  const totalExpense = activities.reduce((acc, a) => acc + (a.totalExpense || 0), 0);
+  const totalRevenue = activities.reduce((acc, a) => acc + (a.revenue || 0), 0);
+
+  // Helper for activity type labels and badges
+  const getActivityTypeInfo = (type: string) => {
+    switch (type) {
+      case 'planting':
+        return { label: language === 'mr' ? '🌱 लागवड' : language === 'hi' ? '🌱 बुवाई' : '🌱 Planting', color: '#15803d', bg: '#dcfce7' };
+      case 'fertilizer':
+        return { label: language === 'mr' ? '🧪 खत देणे' : language === 'hi' ? '🧪 खाद देना' : '🧪 Fertilizer', color: '#b45309', bg: '#fef3c7' };
+      case 'pesticide':
+        return { label: language === 'mr' ? '🚿 फवारणी' : language === 'hi' ? '🚿 छिड़काव' : '🚿 Spraying', color: '#b91c1c', bg: '#fee2e2' };
+      case 'irrigation':
+        return { label: language === 'mr' ? '💧 सिंचन' : language === 'hi' ? '💧 सिंचाई' : '💧 Irrigation', color: '#0369a1', bg: '#e0f2fe' };
+      case 'harvesting':
+        return { label: language === 'mr' ? '🌾 काढणी' : language === 'hi' ? '🌾 कटाई' : '🌾 Harvest', color: '#ca8a04', bg: '#fef9c3' };
+      case 'sales':
+        return { label: language === 'mr' ? '💰 विक्री' : language === 'hi' ? '💰 बिक्री' : '💰 Sales', color: '#15803d', bg: '#dcfce7' };
+      case 'weeding':
+        return { label: language === 'mr' ? '🌿 खुरपणी' : language === 'hi' ? '🌿 निराई' : '🌿 Weeding', color: '#475569', bg: '#f1f5f9' };
+      case 'tillage':
+        return { label: language === 'mr' ? '🚜 नांगरणी' : language === 'hi' ? '🚜 जुताई' : '🚜 Tillage', color: '#7c3aed', bg: '#ede9fe' };
+      default:
+        return { label: language === 'mr' ? '📦 इतर' : language === 'hi' ? '📦 अन्य' : '📦 Other', color: '#475569', bg: '#f1f5f9' };
+    }
+  };
+
+  // Filtered Mandi Rows
   const displayMandiRows = mandiItems.filter((item) => {
     if (!mandiSearch.trim()) return true;
     const q = mandiSearch.toLowerCase();
@@ -165,407 +344,597 @@ export default function MarketScreen() {
   });
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: '#f8fafc' }]}
-      contentContainerStyle={[styles.content, { paddingTop: 12, paddingBottom: 40 }]}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={isRefreshing}
-          onRefresh={() => loadMandiData(true)}
-          colors={['#16a34a']}
-          tintColor="#16a34a"
-        />
-      }>
-      {/* 1. Header Row */}
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.screenTitle}>{t.screenTitleMarket}</Text>
-          <Text style={styles.screenSub}>{t.screenSubMarket}</Text>
-        </View>
-
-        <View style={styles.headerRight}>
-          <TouchableOpacity
-            style={styles.locationChip}
-            onPress={() => setShowLocationModal(true)}
-            activeOpacity={0.8}>
-            <Ionicons name="location-sharp" size={13} color="#16a34a" />
-            <Text style={styles.locationText}>{location.displayLocation} </Text>
-            <Ionicons name="chevron-down" size={11} color="#0f172a" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.bellBtn}
-            onPress={() => router.push('/notifications')}
-            activeOpacity={0.8}>
-            <Ionicons name="notifications-outline" size={22} color="#1e293b" />
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>3</Text>
+    <View style={[styles.container, { backgroundColor: '#f1f5f9' }]}>
+      <ScrollView
+        style={styles.scrollWrap}
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: insets.top > 0 ? insets.top + 6 : 14, paddingBottom: insets.bottom + 40 },
+        ]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            colors={['#15803d']}
+            tintColor="#15803d"
+          />
+        }>
+        {/* 1. Top Header */}
+        <View style={styles.headerRow}>
+          <View style={styles.titleRow}>
+            <View style={styles.headerIconCircle}>
+              <Clock size={24} color="#ffffff" strokeWidth={2.2} />
             </View>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* 2. Hero Banner: Get Live Market Prices */}
-      <View style={styles.heroBanner}>
-        <ImageBackground
-          source={{ uri: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800&q=80' }}
-          style={styles.heroBannerBg}
-          imageStyle={{ borderRadius: 16 }}>
-          <View style={styles.heroOverlay}>
-            <View style={styles.heroTextCol}>
-              <Text style={styles.heroTitle}>{t.getLivePrices}</Text>
-              <Text style={styles.heroSub}>{t.getLivePricesSub}</Text>
+            <View>
+              <Text style={styles.headerTitle}>
+                {language === 'mr' ? 'शेती इतिहास' : language === 'hi' ? 'खेती इतिहास' : 'Farm History'}
+              </Text>
+              <Text style={styles.headerSub}>
+                {language === 'mr'
+                  ? `${activities.length} नोंदी • कामांचा इतिहास`
+                  : language === 'hi'
+                    ? `${activities.length} रिकॉर्ड • कार्य इतिहास`
+                    : `${activities.length} Records • Activity Timeline`}
+              </Text>
             </View>
-            <TouchableOpacity style={styles.nearbyMandisBtn}>
-              <Text style={styles.nearbyMandisText}>{t.nearbyMandisBtn}</Text>
+          </View>
+
+          <View style={styles.headerRight}>
+            <TouchableOpacity
+              style={styles.locationChip}
+              onPress={() => setShowLocationModal(true)}
+              activeOpacity={0.8}>
+              <MapPin size={14} color="#15803d" />
+              <Text style={styles.locationText}>{location.displayCity}</Text>
+              <ChevronDown size={11} color="#0f172a" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.bellBtn}
+              onPress={() => router.push('/notifications')}
+              activeOpacity={0.8}>
+              <Bell size={20} color="#0f172a" strokeWidth={2} />
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{activities.length}</Text>
+              </View>
             </TouchableOpacity>
           </View>
-        </ImageBackground>
-      </View>
+        </View>
 
-      {/* 3. Horizontal Filter Navigation Pills */}
-      <View style={styles.filterPillsRow}>
-        {filterTabs.map((tab) => {
-          const isActive = activePill === tab.key;
-          return (
-            <TouchableOpacity
-              key={tab.key}
-              onPress={() => setActivePill(tab.key as any)}
+        {/* 2. Mode Selector Segment: [ 📖 शेती इतिहास | 📊 बाजार भाव ] */}
+        <View style={styles.modeSegmentWrap}>
+          <TouchableOpacity
+            style={[styles.modeSegmentBtn, activeMode === 'history' && styles.modeSegmentBtnActive]}
+            onPress={() => setActiveMode('history')}
+            activeOpacity={0.8}>
+            <BookOpen
+              size={18}
+              color={activeMode === 'history' ? '#ffffff' : '#475569'}
+              strokeWidth={2}
+            />
+            <Text
               style={[
-                styles.filterPill,
-                isActive ? styles.filterPillActive : styles.filterPillInactive,
+                styles.modeSegmentText,
+                activeMode === 'history' && styles.modeSegmentTextActive,
               ]}>
-              <Ionicons
-                name={tab.icon}
-                size={15}
-                color={isActive ? '#ffffff' : '#475569'}
-              />
+              {language === 'mr' ? 'शेती नोंदी (इतिहास)' : language === 'hi' ? 'खेत रिकॉर्ड (इतिहास)' : 'Farm Records'}
+            </Text>
+            <View
+              style={[
+                styles.countBadge,
+                activeMode === 'history' ? styles.countBadgeActive : styles.countBadgeInactive,
+              ]}>
               <Text
                 style={[
-                  styles.filterPillText,
-                  isActive ? styles.filterPillTextActive : styles.filterPillTextInactive,
+                  styles.countBadgeText,
+                  activeMode === 'history' ? styles.countBadgeTextActive : styles.countBadgeTextInactive,
                 ]}>
-                {tab.label}
+                {activities.length}
               </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+            </View>
+          </TouchableOpacity>
 
-      {/* 4. Popular Crops Horizontal Section */}
-      <View style={styles.sectionTitleRow}>
-        <Text style={styles.sectionHeading}>{t.popularCrops}</Text>
-        <TouchableOpacity style={styles.seeAllBtn}>
-          <Text style={styles.seeAllText}>{t.seeAll}</Text>
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            style={[styles.modeSegmentBtn, activeMode === 'mandi' && styles.modeSegmentBtnActive]}
+            onPress={() => setActiveMode('mandi')}
+            activeOpacity={0.8}>
+            <BarChart3
+              size={18}
+              color={activeMode === 'mandi' ? '#ffffff' : '#475569'}
+              strokeWidth={2}
+            />
+            <Text
+              style={[
+                styles.modeSegmentText,
+                activeMode === 'mandi' && styles.modeSegmentTextActive,
+              ]}>
+              {language === 'mr' ? 'बाजार भाव (Mandi)' : language === 'hi' ? 'मंडी भाव' : 'Live Mandi'}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.popularCropsScroll}>
-        {popularCrops.map((crop) => (
-          <TouchableOpacity key={crop.id} style={styles.popularCropCard}>
-            <Image source={{ uri: crop.image }} style={styles.popularCropImg} />
-            <View style={styles.popularCropInfo}>
-              <Text style={styles.popularCropName}>{crop.name}</Text>
-              <View style={styles.popularPriceRow}>
-                <Text style={styles.popularCropPrice}>{crop.price}</Text>
-                <Text style={[styles.popularCropChange, { color: crop.isUp ? '#16a34a' : '#dc2626' }]}>
-                  {crop.change}
+        {/* ========================================================== */}
+        {/* MODE 1: FARMING HISTORY / शेती नोंदी                         */}
+        {/* ========================================================== */}
+        {activeMode === 'history' && (
+          <View>
+            {/* Quick Metrics Banner */}
+            <View style={styles.metricsSummaryCard}>
+              <View style={styles.metricSumItem}>
+                <Text style={styles.metricSumVal}>{activities.length}</Text>
+                <Text style={styles.metricSumLbl}>
+                  {language === 'mr' ? 'एकूण नोंदी' : language === 'hi' ? 'कुल रिकॉर्ड' : 'Total Records'}
                 </Text>
               </View>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* 5. Live Mandi Prices from data.gov.in */}
-      <View style={styles.mandiHeaderRow}>
-        <View style={{ flex: 1 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={styles.sectionHeading}>{t.mandiPricesTitle}</Text>
-            <View style={[styles.liveSyncBadge, mandiStatus.isLive && styles.liveSyncBadgeActive]}>
-              <View style={[styles.livePulseDot, mandiStatus.isLive && styles.livePulseDotActive]} />
-              <Text style={styles.liveSyncBadgeText}>
-                {mandiStatus.isLive ? 'Live API' : 'Agmarknet'}
-              </Text>
-            </View>
-          </View>
-          <Text style={styles.districtSub}>
-            {selectedDistrict} • {mandiStatus.source} ({mandiStatus.lastUpdated})
-          </Text>
-        </View>
-
-        <TouchableOpacity
-          style={styles.districtDropdown}
-          onPress={() => setShowDistrictModal(true)}
-          activeOpacity={0.8}>
-          <Text style={styles.districtDropdownText}>{selectedDistrict} </Text>
-          <Ionicons name="chevron-down" size={11} color="#0f172a" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Commodity Search & Refresh Bar */}
-      <View style={styles.mandiFilterBar}>
-        <View style={styles.mandiSearchBox}>
-          <Ionicons name="search" size={16} color="#94a3b8" />
-          <TextInput
-            style={styles.mandiSearchInput}
-            placeholder="Search crop / mandi (Onion, Cotton, Soybean...)"
-            placeholderTextColor="#94a3b8"
-            value={mandiSearch}
-            onChangeText={setMandiSearch}
-          />
-          {mandiSearch.length > 0 && (
-            <TouchableOpacity onPress={() => setMandiSearch('')} activeOpacity={0.7}>
-              <Ionicons name="close-circle" size={16} color="#94a3b8" />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <TouchableOpacity
-          style={styles.mandiRefreshBtn}
-          onPress={() => loadMandiData(true)}
-          disabled={isLoadingMandi || isRefreshing}
-          activeOpacity={0.7}>
-          {isLoadingMandi ? (
-            <ActivityIndicator size="small" color="#16a34a" />
-          ) : (
-            <Ionicons name="refresh" size={18} color="#16a34a" />
-          )}
-        </TouchableOpacity>
-      </View>
-
-      {/* Table Container */}
-      <View style={styles.tableCard}>
-        {/* Table Columns Header */}
-        <View style={styles.tableHeaderRow}>
-          <Text style={[styles.tableColHead, { flex: 1.4 }]}>{t.tableCrop}</Text>
-          <Text style={[styles.tableColHead, { flex: 1.1, textAlign: 'center' }]}>
-            {t.tableModal}
-          </Text>
-          <Text style={[styles.tableColHead, { flex: 1, textAlign: 'center' }]}>
-            {t.tableMin}
-          </Text>
-          <Text style={[styles.tableColHead, { flex: 1, textAlign: 'center' }]}>
-            {t.tableMax}
-          </Text>
-          <Text style={[styles.tableColHead, { flex: 1, textAlign: 'center' }]}>
-            {t.tableChange}
-          </Text>
-          <Text style={[styles.tableColHead, { flex: 1.1, textAlign: 'center' }]}>{t.tableAction}</Text>
-        </View>
-
-        {/* Table Rows */}
-        {isLoadingMandi && displayMandiRows.length === 0 ? (
-          <View style={styles.tableLoadingWrap}>
-            <ActivityIndicator size="large" color="#16a34a" />
-            <Text style={styles.tableLoadingText}>Connecting to data.gov.in Agmarknet API...</Text>
-          </View>
-        ) : displayMandiRows.length === 0 ? (
-          <View style={styles.tableEmptyWrap}>
-            <Ionicons name="alert-circle-outline" size={28} color="#94a3b8" />
-            <Text style={styles.tableEmptyText}>No mandi rates found for this query</Text>
-            <TouchableOpacity
-              style={styles.resetFilterBtn}
-              onPress={() => {
-                setMandiSearch('');
-                setSelectedDistrict('All Districts');
-              }}>
-              <Text style={styles.resetFilterBtnText}>Show All Maharashtra Rates</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          displayMandiRows.map((row, idx) => (
-            <TouchableOpacity
-              key={row.id || idx}
-              style={[
-                styles.tableRow,
-                idx === displayMandiRows.length - 1 && { borderBottomWidth: 0 },
-              ]}
-              onPress={() => setSelectedMandiDetail(row)}
-              activeOpacity={0.7}>
-              {/* Crop Info */}
-              <View style={[styles.tableCropCol, { flex: 1.4 }]}>
-                <Image source={{ uri: row.image }} style={styles.tableCropThumb} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.tableCropName} numberOfLines={1}>
-                    {row.commodity}
-                  </Text>
-                  <Text style={styles.tableMarketSub} numberOfLines={1}>
-                    {row.market}
-                  </Text>
-                </View>
+              <View style={styles.metricSumDivider} />
+              <View style={styles.metricSumItem}>
+                <Text style={[styles.metricSumVal, { color: '#dc2626' }]}>
+                  ₹ {totalExpense.toLocaleString('en-IN')}
+                </Text>
+                <Text style={styles.metricSumLbl}>
+                  {language === 'mr' ? 'नोंदवलेला खर्च' : language === 'hi' ? 'दर्ज खर्च' : 'Total Expense'}
+                </Text>
               </View>
+              {totalRevenue > 0 && (
+                <>
+                  <View style={styles.metricSumDivider} />
+                  <View style={styles.metricSumItem}>
+                    <Text style={[styles.metricSumVal, { color: '#15803d' }]}>
+                      ₹ {totalRevenue.toLocaleString('en-IN')}
+                    </Text>
+                    <Text style={styles.metricSumLbl}>
+                      {language === 'mr' ? 'उत्पन्न (विक्री)' : language === 'hi' ? 'आय (बिक्री)' : 'Revenue'}
+                    </Text>
+                  </View>
+                </>
+              )}
+            </View>
 
-              {/* Modal Price */}
-              <Text style={[styles.tableCellBold, { flex: 1.1 }]}>{row.formattedModal}</Text>
+            {/* Search Input */}
+            <View style={styles.searchBarWrap}>
+              <Search size={18} color="#94a3b8" />
+              <TextInput
+                style={styles.searchInput}
+                placeholder={
+                  language === 'mr'
+                    ? 'नोंदी शोधा (उदा. टोमॅटो, खत, फवारणी...)'
+                    : language === 'hi'
+                      ? 'रिकॉर्ड खोजें (उदा. टमाटर, खाद...)'
+                      : 'Search activities, crops, notes...'
+                }
+                placeholderTextColor="#94a3b8"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')} activeOpacity={0.7}>
+                  <XCircle size={18} color="#94a3b8" />
+                </TouchableOpacity>
+              )}
+            </View>
 
-              {/* Min Price */}
-              <Text style={[styles.tableCellRegular, { flex: 1 }]}>{row.formattedMin}</Text>
+            {/* Crop Filter Chips (Dynamic from Crops) */}
+            {crops.length > 0 && (
+              <View style={styles.chipsRowWrap}>
+                <Text style={styles.chipsRowLabel}>
+                  {language === 'mr' ? 'पीक निवडा:' : language === 'hi' ? 'फसल:' : 'Crop:'}
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.chipsScroll}>
+                  <TouchableOpacity
+                    style={[
+                      styles.filterChip,
+                      selectedCropFilter === 'all' && styles.filterChipActive,
+                    ]}
+                    onPress={() => setSelectedCropFilter('all')}
+                    activeOpacity={0.8}>
+                    <Text
+                      style={[
+                        styles.filterChipText,
+                        selectedCropFilter === 'all' && styles.filterChipTextActive,
+                      ]}>
+                      {language === 'mr' ? 'सर्व पिके' : language === 'hi' ? 'सभी फसलें' : 'All Crops'}
+                    </Text>
+                  </TouchableOpacity>
+                  {crops.map((c) => (
+                    <TouchableOpacity
+                      key={c.id}
+                      style={[
+                        styles.filterChip,
+                        selectedCropFilter === c.name && styles.filterChipActive,
+                      ]}
+                      onPress={() =>
+                        setSelectedCropFilter(selectedCropFilter === c.name ? 'all' : c.name)
+                      }
+                      activeOpacity={0.8}>
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          selectedCropFilter === c.name && styles.filterChipTextActive,
+                        ]}>
+                        {c.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
 
-              {/* Max Price */}
-              <Text style={[styles.tableCellRegular, { flex: 1 }]}>{row.formattedMax}</Text>
-
-              {/* Change */}
-              <Text
-                style={[
-                  styles.tableCellChange,
-                  { flex: 1, color: row.isUp ? '#16a34a' : '#dc2626' },
-                ]}>
-                {row.change}
+            {/* Activity Type Filter Chips */}
+            <View style={styles.chipsRowWrap}>
+              <Text style={styles.chipsRowLabel}>
+                {language === 'mr' ? 'प्रकार:' : language === 'hi' ? 'प्रकार:' : 'Type:'}
               </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipsScroll}>
+                {[
+                  { key: 'all', label: language === 'mr' ? 'सर्व' : 'All' },
+                  { key: 'planting', label: language === 'mr' ? '🌱 लागवड' : 'Planting' },
+                  { key: 'fertilizer', label: language === 'mr' ? '🧪 खत' : 'Fertilizer' },
+                  { key: 'pesticide', label: language === 'mr' ? '🚿 फवारणी' : 'Spraying' },
+                  { key: 'irrigation', label: language === 'mr' ? '💧 सिंचन' : 'Irrigation' },
+                  { key: 'harvesting', label: language === 'mr' ? '🌾 काढणी' : 'Harvest' },
+                  { key: 'sales', label: language === 'mr' ? '💰 विक्री' : 'Sales' },
+                  { key: 'other', label: language === 'mr' ? '📦 इतर' : 'Other' },
+                ].map((item) => (
+                  <TouchableOpacity
+                    key={item.key}
+                    style={[
+                      styles.filterChip,
+                      selectedTypeFilter === item.key && styles.filterChipActive,
+                    ]}
+                    onPress={() =>
+                      setSelectedTypeFilter(selectedTypeFilter === item.key ? 'all' : item.key)
+                    }
+                    activeOpacity={0.8}>
+                    <Text
+                      style={[
+                        styles.filterChipText,
+                        selectedTypeFilter === item.key && styles.filterChipTextActive,
+                      ]}>
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
 
-              {/* Details Button */}
-              <View style={[styles.tableBtnCol, { flex: 1.1 }]}>
+            {/* Activities List or Empty State */}
+            {isLoadingActivities ? (
+              <View style={styles.loadingWrap}>
+                <ActivityIndicator size="large" color="#15803d" />
+                <Text style={styles.loadingText}>
+                  {language === 'mr' ? 'नोंदी लोड होत आहेत...' : 'Loading records...'}
+                </Text>
+              </View>
+            ) : filteredActivities.length === 0 ? (
+              <View style={styles.emptyCardContainer}>
+                <View style={styles.emptyIconCircle}>
+                  <BookOpen size={44} color="#15803d" strokeWidth={1.8} />
+                </View>
+                <Text style={styles.emptyCardTitle}>
+                  {searchQuery || selectedCropFilter !== 'all' || selectedTypeFilter !== 'all'
+                    ? language === 'mr'
+                      ? 'कोणतीही जुळणारी नोंद सापडली नाही'
+                      : 'No matching records found'
+                    : language === 'mr'
+                      ? 'अद्याप कोणतीही नोंद नाही'
+                      : language === 'hi'
+                        ? 'अभी कोई रिकॉर्ड दर्ज नहीं है'
+                        : 'No Activities Recorded Yet'}
+                </Text>
+                <Text style={styles.emptyCardSub}>
+                  {language === 'mr'
+                    ? 'शेतातील खत, पाणी, फवारणी किंवा काढणीची पहिली नोंद करा आणि खर्चाचा हिशोब ठेवा.'
+                    : language === 'hi'
+                      ? 'खेत के खाद, पानी, छिड़काव या कटाई का पहला रिकॉर्ड दर्ज करें।'
+                      : 'Add your first farming activity record to track timelines and costs.'}
+                </Text>
                 <TouchableOpacity
-                  style={styles.detailsBtn}
-                  onPress={() => setSelectedMandiDetail(row)}
-                  activeOpacity={0.8}>
-                  <Text style={styles.detailsBtnText}>{t.details}</Text>
+                  style={styles.emptyCardBtn}
+                  onPress={() => router.push('/add-activity')}
+                  activeOpacity={0.85}>
+                  <PlusCircle size={20} color="#ffffff" strokeWidth={2.2} />
+                  <Text style={styles.emptyCardBtnText}>
+                    {language === 'mr' ? '+ पहिली नोंद करा' : language === 'hi' ? '+ नया रिकॉर्ड जोड़ें' : '+ Add First Record'}
+                  </Text>
                 </TouchableOpacity>
               </View>
+            ) : (
+              <View style={styles.activitiesStack}>
+                {filteredActivities.map((item) => {
+                  const typeInfo = getActivityTypeInfo(item.activityType);
+                  const isSpeakingThis = speakingActivityId === item.id;
+                  const spokenText = `${item.cropName}: ${item.activityTitle}. ${item.notes || item.voiceTranscript || ''}`;
+
+                  return (
+                    <View key={item.id} style={styles.activityCard}>
+                      <View style={styles.activityCardTopRow}>
+                        {/* Thumbnail */}
+                        <Image
+                          source={{
+                            uri:
+                              item.photoUri ||
+                              'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=200&q=80',
+                          }}
+                          style={styles.activityThumb}
+                        />
+
+                        {/* Content */}
+                        <View style={styles.activityContentCol}>
+                          <View style={styles.activityHeaderPillsRow}>
+                            <View style={styles.cropBadge}>
+                              <Text style={styles.cropBadgeText}>{item.cropName}</Text>
+                            </View>
+                            <View style={[styles.typePill, { backgroundColor: typeInfo.bg }]}>
+                              <Text style={[styles.typePillText, { color: typeInfo.color }]}>
+                                {typeInfo.label}
+                              </Text>
+                            </View>
+                            <TouchableOpacity
+                              onPress={() => handleDeleteActivity(item.id, item.activityTitle)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              style={styles.deleteActivityBtn}>
+                              <Trash2 size={16} color="#ef4444" />
+                            </TouchableOpacity>
+                          </View>
+
+                          <Text style={styles.activityCardTitle} numberOfLines={1}>
+                            {item.activityTitle}
+                          </Text>
+
+                          <Text style={styles.activityDateText}>
+                            📅 {item.date ? item.date.split('T')[0] : item.createdAt.split('T')[0]}
+                            {item.plotName ? ` • 📍 ${item.plotName}` : ''}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Notes / Voice Transcript */}
+                      {(item.notes || item.voiceTranscript) && (
+                        <View style={styles.notesBox}>
+                          <MessageSquare size={14} color="#64748b" />
+                          <Text style={styles.notesText} numberOfLines={2}>
+                            {item.notes || item.voiceTranscript}
+                          </Text>
+                        </View>
+                      )}
+
+                      {/* Bottom Row: Expense & Actions */}
+                      <View style={styles.activityCardBottomRow}>
+                        <View style={styles.costCol}>
+                          {item.totalExpense > 0 ? (
+                            <View style={styles.expensePill}>
+                              <Text style={styles.expensePillText}>
+                                खर्च: ₹ {item.totalExpense.toLocaleString('en-IN')}
+                              </Text>
+                            </View>
+                          ) : item.revenue && item.revenue > 0 ? (
+                            <View style={[styles.expensePill, { backgroundColor: '#dcfce7' }]}>
+                              <Text style={[styles.expensePillText, { color: '#15803d' }]}>
+                                विक्री: ₹ {item.revenue.toLocaleString('en-IN')}
+                              </Text>
+                            </View>
+                          ) : (
+                            <View style={[styles.expensePill, { backgroundColor: '#f1f5f9' }]}>
+                              <Text style={[styles.expensePillText, { color: '#64748b' }]}>
+                                खर्च नोंद नाही
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+
+                        <View style={styles.cardActionsRow}>
+                          {/* 🔊 Audio Speak (Farmer Voice or TTS) */}
+                          <TouchableOpacity
+                            style={[
+                              styles.actAudioBtn,
+                              isSpeakingThis && styles.actAudioBtnActive,
+                            ]}
+                            onPress={() => handleToggleSpeakActivity(item.id, spokenText, item.audioUri)}
+                            activeOpacity={0.7}>
+                            {isSpeakingThis ? (
+                              <Square size={14} color="#ffffff" fill="#ffffff" />
+                            ) : (
+                              <Volume2 size={16} color="#15803d" />
+                            )}
+                          </TouchableOpacity>
+
+                          {/* ℹ️ View Detail */}
+                          <TouchableOpacity
+                            style={styles.actDetailBtn}
+                            onPress={() =>
+                              router.push({
+                                pathname: '/activity-detail',
+                                params: { id: item.id },
+                              })
+                            }
+                            activeOpacity={0.7}>
+                            <Text style={styles.actDetailBtnText}>
+                              {language === 'mr' ? 'तपशील →' : 'Details →'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            {/* Bottom Big Button: "+ नवीन नोंद करा" */}
+            <TouchableOpacity
+              style={styles.addRecordBottomBtn}
+              onPress={() => router.push('/add-activity')}
+              activeOpacity={0.85}>
+              <PlusCircle size={22} color="#ffffff" strokeWidth={2.2} />
+              <Text style={styles.addRecordBottomBtnText}>
+                {language === 'mr'
+                  ? '+ नवीन नोंद करा (फोटो / आवाज)'
+                  : language === 'hi'
+                    ? '+ नया रिकॉर्ड दर्ज करें'
+                    : '+ Record New Farm Activity'}
+              </Text>
             </TouchableOpacity>
-          ))
+          </View>
         )}
-      </View>
 
-      {/* 6. Price Trend Section */}
-      <View style={styles.trendHeaderRow}>
-        <Text style={styles.sectionHeading}>{t.priceTrendTitle}</Text>
-        <View style={styles.trendDropdownsRow}>
-          <TouchableOpacity style={styles.smallDropdown}>
-            <Text style={styles.smallDropdownText}>{selectedTrendCrop} </Text>
-            <Ionicons name="chevron-down" size={10} color="#0f172a" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.smallDropdown}>
-            <Text style={styles.smallDropdownText}>{timeRange} </Text>
-            <Ionicons name="chevron-down" size={10} color="#0f172a" />
-          </TouchableOpacity>
-        </View>
-      </View>
+        {/* ========================================================== */}
+        {/* MODE 2: LIVE MANDI PRICES (बाजार भाव)                        */}
+        {/* ========================================================== */}
+        {activeMode === 'mandi' && (
+          <View>
+            {/* Live API Mandi Header */}
+            <View style={styles.mandiHeaderRow}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={styles.sectionHeading}>
+                    {language === 'mr' ? 'थेट बाजार भाव' : language === 'hi' ? 'लाइव मंडी भाव' : 'Live Mandi Prices'}
+                  </Text>
+                  <View style={[styles.liveSyncBadge, mandiStatus.isLive && styles.liveSyncBadgeActive]}>
+                    <View style={[styles.livePulseDot, mandiStatus.isLive && styles.livePulseDotActive]} />
+                    <Text style={styles.liveSyncBadgeText}>
+                      {mandiStatus.isLive ? 'Live API' : 'Agmarknet'}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.districtSub}>
+                  {selectedDistrict} • {mandiStatus.source} ({mandiStatus.lastUpdated})
+                </Text>
+              </View>
 
-      {/* Trend Chart Card */}
-      <View style={styles.trendCard}>
-        {/* Left: SVG Chart */}
-        <View style={styles.chartCol}>
-          <View style={styles.chartSvgWrap}>
-            <Svg width="100%" height={120} viewBox="0 0 200 120">
-              <Defs>
-                <LinearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                  <Stop offset="0%" stopColor="#16a34a" stopOpacity="0.3" />
-                  <Stop offset="100%" stopColor="#16a34a" stopOpacity="0.0" />
-                </LinearGradient>
-              </Defs>
+              <TouchableOpacity
+                style={styles.districtDropdown}
+                onPress={() => setShowDistrictModal(true)}
+                activeOpacity={0.8}>
+                <Text style={styles.districtDropdownText}>{selectedDistrict} </Text>
+                <ChevronDown size={11} color="#0f172a" />
+              </TouchableOpacity>
+            </View>
 
-              {/* Horizontal Gridlines */}
-              <Line x1="0" y1="20" x2="200" y2="20" stroke="#f1f5f9" strokeWidth="1" />
-              <Line x1="0" y1="50" x2="200" y2="50" stroke="#f1f5f9" strokeWidth="1" />
-              <Line x1="0" y1="80" x2="200" y2="80" stroke="#f1f5f9" strokeWidth="1" />
-              <Line x1="0" y1="110" x2="200" y2="110" stroke="#f1f5f9" strokeWidth="1" />
+            {/* Commodity Search & Refresh Bar */}
+            <View style={styles.mandiFilterBar}>
+              <View style={styles.mandiSearchBox}>
+                <Search size={16} color="#94a3b8" />
+                <TextInput
+                  style={styles.mandiSearchInput}
+                  placeholder={language === 'mr' ? 'पीक / बाजार शोधा...' : 'Search commodity / mandi...'}
+                  placeholderTextColor="#94a3b8"
+                  value={mandiSearch}
+                  onChangeText={setMandiSearch}
+                />
+                {mandiSearch.length > 0 && (
+                  <TouchableOpacity onPress={() => setMandiSearch('')} activeOpacity={0.7}>
+                    <XCircle size={16} color="#94a3b8" />
+                  </TouchableOpacity>
+                )}
+              </View>
 
-              {/* Gradient Area Fill */}
-              <Path
-                d="M 10,85 C 30,90 40,75 60,65 C 80,60 90,72 110,55 C 130,68 140,68 160,45 C 180,35 190,25 195,20 L 195,110 L 10,110 Z"
-                fill="url(#chartGradient)"
-              />
+              <TouchableOpacity
+                style={styles.mandiRefreshBtn}
+                onPress={() => loadMandiData(true)}
+                disabled={isLoadingMandi || isRefreshing}
+                activeOpacity={0.7}>
+                {isLoadingMandi ? (
+                  <ActivityIndicator size="small" color="#15803d" />
+                ) : (
+                  <RefreshCw size={18} color="#15803d" />
+                )}
+              </TouchableOpacity>
+            </View>
 
-              {/* Green Trend Line */}
-              <Path
-                d="M 10,85 C 30,90 40,75 60,65 C 80,60 90,72 110,55 C 130,68 140,68 160,45 C 180,35 190,25 195,20"
-                fill="none"
-                stroke="#16a34a"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-              />
+            {/* Mandi Table */}
+            <View style={styles.tableCard}>
+              <View style={styles.tableHeaderRow}>
+                <Text style={[styles.tableColHead, { flex: 1.4 }]}>
+                  {language === 'mr' ? 'पीक / बाजार' : 'Crop'}
+                </Text>
+                <Text style={[styles.tableColHead, { flex: 1.1, textAlign: 'center' }]}>
+                  {language === 'mr' ? 'सरासरी दर\n(₹/क्विंटल)' : 'Modal Price'}
+                </Text>
+                <Text style={[styles.tableColHead, { flex: 1, textAlign: 'center' }]}>
+                  {language === 'mr' ? 'किमान' : 'Min'}
+                </Text>
+                <Text style={[styles.tableColHead, { flex: 1, textAlign: 'center' }]}>
+                  {language === 'mr' ? 'कमाल' : 'Max'}
+                </Text>
+                <Text style={[styles.tableColHead, { flex: 1, textAlign: 'center' }]}>
+                  {language === 'mr' ? 'तपशील' : 'Details'}
+                </Text>
+              </View>
 
-              {/* Data Points */}
-              <Circle cx="10" cy="85" r="3.5" fill="#16a34a" stroke="#ffffff" strokeWidth="1.5" />
-              <Circle cx="35" cy="88" r="3.5" fill="#16a34a" stroke="#ffffff" strokeWidth="1.5" />
-              <Circle cx="60" cy="65" r="3.5" fill="#16a34a" stroke="#ffffff" strokeWidth="1.5" />
-              <Circle cx="85" cy="70" r="3.5" fill="#16a34a" stroke="#ffffff" strokeWidth="1.5" />
-              <Circle cx="110" cy="55" r="3.5" fill="#16a34a" stroke="#ffffff" strokeWidth="1.5" />
-              <Circle cx="135" cy="67" r="3.5" fill="#16a34a" stroke="#ffffff" strokeWidth="1.5" />
-              <Circle cx="155" cy="67" r="3.5" fill="#16a34a" stroke="#ffffff" strokeWidth="1.5" />
-              <Circle cx="180" cy="45" r="3.5" fill="#16a34a" stroke="#ffffff" strokeWidth="1.5" />
-              <Circle cx="195" cy="20" r="4" fill="#16a34a" stroke="#ffffff" strokeWidth="1.5" />
-            </Svg>
+              {isLoadingMandi && displayMandiRows.length === 0 ? (
+                <View style={styles.tableLoadingWrap}>
+                  <ActivityIndicator size="large" color="#15803d" />
+                  <Text style={styles.tableLoadingText}>
+                    {language === 'mr' ? 'Agmarknet API वरून दर आणत आहे...' : 'Connecting to Agmarknet API...'}
+                  </Text>
+                </View>
+              ) : displayMandiRows.length === 0 ? (
+                <View style={styles.tableEmptyWrap}>
+                  <AlertCircle size={28} color="#94a3b8" />
+                  <Text style={styles.tableEmptyText}>
+                    {language === 'mr' ? 'या शोधासाठी कोणतेही दर सापडले नाहीत' : 'No mandi rates found for this query'}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.resetFilterBtn}
+                    onPress={() => {
+                      setMandiSearch('');
+                      setSelectedDistrict('All Districts');
+                    }}>
+                    <Text style={styles.resetFilterBtnText}>
+                      {language === 'mr' ? 'सर्व महाराष्ट्राचे दर पहा' : 'Show All Maharashtra Rates'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                displayMandiRows.map((row, idx) => (
+                  <TouchableOpacity
+                    key={row.id || idx}
+                    style={[
+                      styles.tableRow,
+                      idx === displayMandiRows.length - 1 && { borderBottomWidth: 0 },
+                    ]}
+                    onPress={() => setSelectedMandiDetail(row)}
+                    activeOpacity={0.7}>
+                    <View style={[styles.tableCropCol, { flex: 1.4 }]}>
+                      <Image source={{ uri: row.image }} style={styles.tableCropThumb} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.tableCropName} numberOfLines={1}>
+                          {row.commodity}
+                        </Text>
+                        <Text style={styles.tableMarketSub} numberOfLines={1}>
+                          {row.market}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Text style={[styles.tableCellBold, { flex: 1.1 }]}>{row.formattedModal}</Text>
+                    <Text style={[styles.tableCellRegular, { flex: 1 }]}>{row.formattedMin}</Text>
+                    <Text style={[styles.tableCellRegular, { flex: 1 }]}>{row.formattedMax}</Text>
+
+                    <View style={[styles.tableBtnCol, { flex: 1 }]}>
+                      <TouchableOpacity
+                        style={styles.detailsBtn}
+                        onPress={() => setSelectedMandiDetail(row)}
+                        activeOpacity={0.8}>
+                        <Text style={styles.detailsBtnText}>
+                          {language === 'mr' ? 'पहा' : 'View'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+            </View>
           </View>
-
-          {/* X Axis Labels */}
-          <View style={styles.xAxisRow}>
-            <Text style={styles.axisLabel}>Jul 2026</Text>
-            <Text style={styles.axisLabel}>Aug 2026</Text>
-            <Text style={styles.axisLabel}>Sep 2026</Text>
-            <Text style={styles.axisLabel}>Oct 2026</Text>
-          </View>
-        </View>
-
-        {/* Right: Current Price KPI Card */}
-        <View style={styles.kpiCard}>
-          <Text style={styles.kpiLabel}>{t.currentPrice}</Text>
-          <Text style={styles.kpiValue}>₹ 4,800</Text>
-          <View style={styles.kpiBadge}>
-            <Text style={styles.kpiBadgeText}>↑ 2%</Text>
-          </View>
-          <Text style={styles.kpiSub}>{t.vsLastWeek}</Text>
-        </View>
-      </View>
-
-      {/* 7. 4 Service / Market Cards (2x2 Grid) */}
-      <View style={styles.gridCardsRow}>
-        {/* Card 1: Market News */}
-        <TouchableOpacity style={styles.gridCardItem}>
-          <View style={[styles.gridIconWrap, { backgroundColor: '#fef3c7' }]}>
-            <MaterialCommunityIcons name="newspaper-variant-outline" size={20} color="#d97706" />
-          </View>
-          <View style={styles.gridTextWrap}>
-            <Text style={styles.gridTitle}>{t.marketNews}</Text>
-            <Text style={styles.gridDesc}>{t.marketNewsSub}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color="#d97706" />
-        </TouchableOpacity>
-
-        {/* Card 2: Sell to Buyers */}
-        <TouchableOpacity style={styles.gridCardItem}>
-          <View style={[styles.gridIconWrap, { backgroundColor: '#e0f2fe' }]}>
-            <MaterialCommunityIcons name="handshake-outline" size={20} color="#0284c7" />
-          </View>
-          <View style={styles.gridTextWrap}>
-            <Text style={styles.gridTitle}>{t.sellToBuyers}</Text>
-            <Text style={styles.gridDesc}>{t.sellToBuyersSub}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color="#0284c7" />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.gridCardsRow}>
-        {/* Card 3: Price Alerts */}
-        <TouchableOpacity style={styles.gridCardItem}>
-          <View style={[styles.gridIconWrap, { backgroundColor: '#f3e8ff' }]}>
-            <Ionicons name="notifications-outline" size={20} color="#9333ea" />
-          </View>
-          <View style={styles.gridTextWrap}>
-            <Text style={styles.gridTitle}>{t.priceAlerts}</Text>
-            <Text style={styles.gridDesc}>{t.priceAlertsSub}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color="#9333ea" />
-        </TouchableOpacity>
-
-        {/* Card 4: Export Opportunities */}
-        <TouchableOpacity style={styles.gridCardItem}>
-          <View style={[styles.gridIconWrap, { backgroundColor: '#e0f2fe' }]}>
-            <Ionicons name="globe-outline" size={20} color="#0284c7" />
-          </View>
-          <View style={styles.gridTextWrap}>
-            <Text style={styles.gridTitle}>{t.exportOpps}</Text>
-            <Text style={styles.gridDesc}>{t.exportOppsSub}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color="#0284c7" />
-        </TouchableOpacity>
-      </View>
+        )}
+      </ScrollView>
 
       {/* District Picker Modal */}
       <Modal
@@ -579,9 +948,11 @@ export default function MarketScreen() {
           onPress={() => setShowDistrictModal(false)}>
           <View style={styles.districtModalCard}>
             <View style={styles.modalHeaderRow}>
-              <Text style={styles.modalTitle}>Select Mandi District (जिल्हा)</Text>
+              <Text style={styles.modalTitle}>
+                {language === 'mr' ? 'जिल्हा निवडा (District)' : 'Select Mandi District'}
+              </Text>
               <TouchableOpacity onPress={() => setShowDistrictModal(false)}>
-                <Ionicons name="close" size={20} color="#475569" />
+                <X size={20} color="#475569" />
               </TouchableOpacity>
             </View>
             <ScrollView style={{ maxHeight: 340 }}>
@@ -605,9 +976,7 @@ export default function MarketScreen() {
                       ]}>
                       {dist}
                     </Text>
-                    {isSelected && (
-                      <Ionicons name="checkmark-circle" size={18} color="#16a34a" />
-                    )}
+                    {isSelected && <CheckCircle2 size={18} color="#15803d" />}
                   </TouchableOpacity>
                 );
               })}
@@ -616,89 +985,63 @@ export default function MarketScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Detailed Mandi Record Modal */}
-      <Modal
-        visible={!!selectedMandiDetail}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setSelectedMandiDetail(null)}>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.mandiDetailCard}>
-            <View style={styles.detailCardDrag} />
-            <View style={styles.modalHeaderRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.detailSuperTitle}>Govt. of India APMC Mandi Rate</Text>
-                <Text style={styles.detailCropName}>{selectedMandiDetail?.commodity}</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.closeRoundBtn}
-                onPress={() => setSelectedMandiDetail(null)}>
-                <Ionicons name="close" size={20} color="#475569" />
-              </TouchableOpacity>
-            </View>
-
-            {selectedMandiDetail && (
-              <View style={styles.receiptBody}>
-                {/* Hero Price Badge */}
-                <View style={styles.receiptPriceHero}>
-                  <Text style={styles.receiptPriceLabel}>Modal Price (सर्वसाधारण बाजार भाव)</Text>
-                  <Text style={styles.receiptPriceValue}>{selectedMandiDetail.formattedModal} / quintal</Text>
-                  <Text style={styles.receiptPriceSub}>
-                    Arrival Date: {selectedMandiDetail.arrivalDate}
+      {/* Mandi Detail Modal */}
+      {selectedMandiDetail && (
+        <Modal
+          visible={true}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setSelectedMandiDetail(null)}>
+          <View style={styles.detailModalBackdrop}>
+            <View style={styles.detailModalCard}>
+              <View style={styles.detailModalHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.detailModalTitle}>{selectedMandiDetail.commodity}</Text>
+                  <Text style={styles.detailModalSub}>
+                    {selectedMandiDetail.market} • {selectedMandiDetail.district}
                   </Text>
                 </View>
-
-                {/* Details Grid */}
-                <View style={styles.receiptGrid}>
-                  <View style={styles.receiptGridItem}>
-                    <Text style={styles.gridKey}>Mandi (बाजार समिती):</Text>
-                    <Text style={styles.gridVal}>{selectedMandiDetail.market} APMC</Text>
-                  </View>
-                  <View style={styles.receiptGridItem}>
-                    <Text style={styles.gridKey}>District (जिल्हा):</Text>
-                    <Text style={styles.gridVal}>{selectedMandiDetail.district}, {selectedMandiDetail.state}</Text>
-                  </View>
-                  <View style={styles.receiptGridItem}>
-                    <Text style={styles.gridKey}>Variety (प्रकार/जात):</Text>
-                    <Text style={styles.gridVal}>{selectedMandiDetail.variety}</Text>
-                  </View>
-                  <View style={styles.receiptGridItem}>
-                    <Text style={styles.gridKey}>Grade (प्रत):</Text>
-                    <Text style={styles.gridVal}>{selectedMandiDetail.grade}</Text>
-                  </View>
-                  <View style={styles.receiptGridItem}>
-                    <Text style={styles.gridKey}>Minimum Price (किमान):</Text>
-                    <Text style={[styles.gridVal, { color: '#0f172a' }]}>{selectedMandiDetail.formattedMin}</Text>
-                  </View>
-                  <View style={styles.receiptGridItem}>
-                    <Text style={styles.gridKey}>Maximum Price (कमाल):</Text>
-                    <Text style={[styles.gridVal, { color: '#16a34a' }]}>{selectedMandiDetail.formattedMax}</Text>
-                  </View>
-                </View>
-
-                {/* Official GoI Badge */}
-                <View style={styles.govVerifiedBox}>
-                  <MaterialCommunityIcons name="shield-check" size={20} color="#16a34a" />
-                  <View style={{ flex: 1, marginLeft: 8 }}>
-                    <Text style={styles.govVerifiedTitle}>Verified via Open Government Data (data.gov.in)</Text>
-                    <Text style={styles.govVerifiedDesc}>
-                      Ministry of Agriculture & Farmers Welfare, Directorate of Marketing & Inspection (DMI)
-                    </Text>
-                  </View>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.closeSheetBtn}
-                  onPress={() => setSelectedMandiDetail(null)}
-                  activeOpacity={0.8}>
-                  <Text style={styles.closeSheetBtnText}>Close</Text>
+                <TouchableOpacity onPress={() => setSelectedMandiDetail(null)}>
+                  <XCircle size={26} color="#94a3b8" />
                 </TouchableOpacity>
               </View>
-            )}
+
+              <View style={styles.detailGridRow}>
+                <View style={styles.detailGridItem}>
+                  <Text style={styles.detailGridLbl}>
+                    {language === 'mr' ? 'सरासरी दर' : 'Modal Price'}
+                  </Text>
+                  <Text style={[styles.detailGridVal, { color: '#15803d' }]}>
+                    {selectedMandiDetail.formattedModal}
+                  </Text>
+                </View>
+                <View style={styles.detailGridItem}>
+                  <Text style={styles.detailGridLbl}>
+                    {language === 'mr' ? 'किमान दर' : 'Min Price'}
+                  </Text>
+                  <Text style={styles.detailGridVal}>{selectedMandiDetail.formattedMin}</Text>
+                </View>
+                <View style={styles.detailGridItem}>
+                  <Text style={styles.detailGridLbl}>
+                    {language === 'mr' ? 'कमाल दर' : 'Max Price'}
+                  </Text>
+                  <Text style={styles.detailGridVal}>{selectedMandiDetail.formattedMax}</Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.detailCloseBtn}
+                onPress={() => setSelectedMandiDetail(null)}
+                activeOpacity={0.8}>
+                <Text style={styles.detailCloseBtnText}>
+                  {language === 'mr' ? 'बंद करा' : 'Close'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
-      </Modal>
-    </ScrollView>
+        </Modal>
+      )}
+    </View>
   );
 }
 
@@ -706,25 +1049,49 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  scrollWrap: {
+    flex: 1,
+  },
   content: {
     paddingHorizontal: 14,
   },
-  /* Header */
+
+  /* 1. Top Header */
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
-  screenTitle: {
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  headerIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#15803d',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#15803d',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  headerTitle: {
     fontSize: 22,
-    fontWeight: '800',
+    fontWeight: '900',
     color: '#0f172a',
     letterSpacing: -0.3,
   },
-  screenSub: {
-    fontSize: 11.5,
-    color: '#64748b',
+  headerSub: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#15803d',
     marginTop: 1,
   },
   headerRight: {
@@ -736,447 +1103,459 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
     borderRadius: 20,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    gap: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minHeight: 38,
+    gap: 4,
   },
   locationText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
     color: '#0f172a',
   },
   bellBtn: {
-    position: 'relative',
-    padding: 6,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   badge: {
     position: 'absolute',
-    top: 2,
-    right: 2,
-    backgroundColor: '#ef4444',
-    borderRadius: 8,
-    minWidth: 15,
-    height: 15,
+    top: -2,
+    right: -2,
+    backgroundColor: '#15803d',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 2,
+    paddingHorizontal: 4,
   },
   badgeText: {
     color: '#ffffff',
     fontSize: 9,
-    fontWeight: '700',
-  },
-
-  /* Hero Banner */
-  heroBanner: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 14,
-  },
-  heroBannerBg: {
-    width: '100%',
-  },
-  heroOverlay: {
-    backgroundColor: 'rgba(6, 78, 59, 0.88)',
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderRadius: 16,
-  },
-  heroTextCol: {
-    flex: 1,
-    paddingRight: 8,
-  },
-  heroTitle: {
-    fontSize: 18,
     fontWeight: '800',
-    color: '#ffffff',
-    lineHeight: 22,
-  },
-  heroSub: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.85)',
-    lineHeight: 15,
-    marginTop: 4,
-  },
-  nearbyMandisBtn: {
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    alignSelf: 'center',
-  },
-  nearbyMandisText: {
-    color: '#16a34a',
-    fontSize: 11.5,
-    fontWeight: '700',
   },
 
-  /* Filter Navigation Pills */
-  filterPillsRow: {
+  /* 2. Mode Selector Segment */
+  modeSegmentWrap: {
     flexDirection: 'row',
-    gap: 6,
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    padding: 4,
     marginBottom: 14,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    gap: 6,
   },
-  filterPill: {
+  modeSegmentBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 6,
-    borderRadius: 20,
-    gap: 4,
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
   },
-  filterPillActive: {
-    backgroundColor: '#16a34a',
+  modeSegmentBtnActive: {
+    backgroundColor: '#15803d',
+    shadowColor: '#15803d',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  filterPillInactive: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+  modeSegmentText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#475569',
   },
-  filterPillText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-  },
-  filterPillTextActive: {
+  modeSegmentTextActive: {
     color: '#ffffff',
   },
-  filterPillTextInactive: {
+  countBadge: {
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  countBadgeActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  countBadgeInactive: {
+    backgroundColor: '#e2e8f0',
+  },
+  countBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  countBadgeTextActive: {
+    color: '#ffffff',
+  },
+  countBadgeTextInactive: {
     color: '#475569',
   },
 
-  /* Popular Crops */
-  sectionTitleRow: {
+  /* Metrics Summary Banner */
+  metricsSummaryCard: {
+    flexDirection: 'row',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    marginBottom: 12,
+  },
+  metricSumItem: {
+    alignItems: 'center',
+  },
+  metricSumVal: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#0f172a',
+  },
+  metricSumLbl: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+    marginTop: 2,
+  },
+  metricSumDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: '#e2e8f0',
+  },
+
+  /* Search Bar */
+  searchBarWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    paddingHorizontal: 12,
+    height: 44,
+    marginBottom: 10,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#0f172a',
+    height: '100%',
+  },
+
+  /* Chips Rows */
+  chipsRowWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  chipsRowLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#475569',
+    width: 60,
+  },
+  chipsScroll: {
+    gap: 6,
+    paddingRight: 10,
+  },
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+  },
+  filterChipActive: {
+    backgroundColor: '#15803d',
+    borderColor: '#15803d',
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  filterChipTextActive: {
+    color: '#ffffff',
+    fontWeight: '800',
+  },
+
+  /* Loading & Empty States */
+  loadingWrap: {
+    paddingVertical: 40,
+    alignItems: 'center',
+    gap: 8,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  emptyCardContainer: {
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    borderStyle: 'dashed',
+    marginVertical: 12,
+  },
+  emptyIconCircle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: '#f0fdf4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  emptyCardTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0f172a',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  emptyCardSub: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+  },
+  emptyCardBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#15803d',
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    borderRadius: 20,
+    shadowColor: '#15803d',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  emptyCardBtnText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+
+  /* Activity Cards Stack */
+  activitiesStack: {
+    gap: 12,
+    marginTop: 6,
+  },
+  activityCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  activityCardTopRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  activityThumb: {
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+    backgroundColor: '#e2e8f0',
+  },
+  activityContentCol: {
+    flex: 1,
+  },
+  activityHeaderPillsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  cropBadge: {
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#86efac',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  cropBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#15803d',
+  },
+  typePill: {
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  typePillText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  deleteActivityBtn: {
+    marginLeft: 'auto',
+    padding: 4,
+    borderRadius: 10,
+    backgroundColor: '#fef2f2',
+  },
+  activityCardTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginBottom: 2,
+  },
+  activityDateText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+
+  /* Notes */
+  notesBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    padding: 8,
+    marginTop: 8,
+  },
+  notesText: {
+    flex: 1,
+    fontSize: 12.5,
+    color: '#334155',
+    lineHeight: 17,
+  },
+
+  /* Card Bottom */
+  activityCardBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  costCol: {
+    flex: 1,
+  },
+  expensePill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#fee2e2',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  expensePillText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#dc2626',
+  },
+  cardActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  actAudioBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#86efac',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actAudioBtnActive: {
+    backgroundColor: '#dc2626',
+    borderColor: '#b91c1c',
+  },
+  actDetailBtn: {
+    backgroundColor: '#15803d',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  actDetailBtnText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#ffffff',
+  },
+
+  /* Bottom Big Button */
+  addRecordBottomBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#15803d',
+    borderRadius: 18,
+    paddingVertical: 14,
+    minHeight: 52,
+    marginTop: 16,
+    marginBottom: 8,
+    shadowColor: '#15803d',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  addRecordBottomBtnText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#ffffff',
+  },
+
+  /* Mandi Styles */
+  mandiHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
   },
   sectionHeading: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  seeAllBtn: {
-    paddingVertical: 2,
-    paddingHorizontal: 4,
-  },
-  seeAllText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#16a34a',
-  },
-  popularCropsScroll: {
-    gap: 8,
-    paddingBottom: 4,
-    marginBottom: 16,
-  },
-  popularCropCard: {
-    width: 100,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    overflow: 'hidden',
-  },
-  popularCropImg: {
-    width: '100%',
-    height: 60,
-  },
-  popularCropInfo: {
-    padding: 6,
-  },
-  popularCropName: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  popularPriceRow: {
-    marginTop: 2,
-  },
-  popularCropPrice: {
-    fontSize: 11.5,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  popularCropChange: {
-    fontSize: 9.5,
-    fontWeight: '700',
-    marginTop: 1,
-  },
-
-  /* Mandi Prices Header */
-  mandiHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  districtSub: {
-    fontSize: 11.5,
-    color: '#64748b',
-    fontWeight: '600',
-  },
-  districtDropdown: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 14,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  districtDropdownText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-
-  /* Table Card */
-  tableCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    overflow: 'hidden',
-    marginBottom: 16,
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4 },
-      android: { elevation: 1 },
-    }),
-  },
-  tableHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-  },
-  tableColHead: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#64748b',
-    lineHeight: 11,
-  },
-  tableRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 9,
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  tableCropCol: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  tableCropThumb: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-  },
-  tableCropName: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  tableCellBold: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    color: '#0f172a',
-    textAlign: 'center',
-  },
-  tableCellRegular: {
-    fontSize: 10.5,
-    fontWeight: '500',
-    color: '#475569',
-    textAlign: 'center',
-  },
-  tableCellChange: {
-    fontSize: 10,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  tableBtnCol: {
-    alignItems: 'center',
-  },
-  detailsBtn: {
-    borderWidth: 1,
-    borderColor: '#16a34a',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-  },
-  detailsBtnText: {
-    fontSize: 9.5,
-    fontWeight: '700',
-    color: '#16a34a',
-  },
-
-  /* Price Trend Header */
-  trendHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  trendDropdownsRow: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  smallDropdown: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  smallDropdownText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-
-  /* Trend Chart Card */
-  trendCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4 },
-      android: { elevation: 1 },
-    }),
-  },
-  chartCol: {
-    flex: 1,
-    paddingRight: 8,
-  },
-  chartSvgWrap: {
-    width: '100%',
-    height: 120,
-  },
-  xAxisRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 4,
-    paddingHorizontal: 6,
-  },
-  axisLabel: {
-    fontSize: 8.5,
-    color: '#94a3b8',
-    fontWeight: '600',
-  },
-  kpiCard: {
-    width: 105,
-    backgroundColor: '#f0fdf4',
-    borderWidth: 1,
-    borderColor: '#dcfce7',
-    borderRadius: 12,
-    padding: 10,
-    alignItems: 'center',
-  },
-  kpiLabel: {
-    fontSize: 10,
-    color: '#64748b',
-  },
-  kpiValue: {
     fontSize: 17,
     fontWeight: '800',
     color: '#0f172a',
-    marginTop: 2,
   },
-  kpiBadge: {
-    backgroundColor: '#dcfce7',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-    marginTop: 4,
-  },
-  kpiBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#16a34a',
-  },
-  kpiSub: {
-    fontSize: 8.5,
-    color: '#16a34a',
-    fontWeight: '600',
-    marginTop: 4,
-  },
-
-  /* 2x2 Service Cards */
-  gridCardsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 8,
-  },
-  gridCardItem: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 14,
-    padding: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  gridIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
-  gridTextWrap: {
-    flex: 1,
-    paddingRight: 4,
-  },
-  gridTitle: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  gridDesc: {
-    fontSize: 8.5,
-    color: '#64748b',
-    marginTop: 1,
-    lineHeight: 11,
-  },
-
-  /* Live Mandi Sync Badge */
   liveSyncBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f1f5f9',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 10,
     gap: 4,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
   liveSyncBadgeActive: {
     backgroundColor: '#dcfce7',
-    borderColor: '#bbf7d0',
   },
   livePulseDot: {
     width: 6,
@@ -1185,110 +1564,202 @@ const styles = StyleSheet.create({
     backgroundColor: '#94a3b8',
   },
   livePulseDotActive: {
-    backgroundColor: '#16a34a',
+    backgroundColor: '#15803d',
   },
   liveSyncBadgeText: {
-    fontSize: 9.5,
-    fontWeight: '700',
-    color: '#16a34a',
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#15803d',
   },
-
-  /* Mandi Filter Bar */
+  districtSub: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#64748b',
+    marginTop: 2,
+  },
+  districtDropdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 4,
+  },
+  districtDropdownText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
   mandiFilterBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   mandiSearchBox: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    paddingHorizontal: 12,
+    height: 42,
     gap: 6,
   },
   mandiSearchInput: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 13,
     color: '#0f172a',
-    padding: 0,
   },
   mandiRefreshBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: '#f0fdf4',
-    borderWidth: 1,
-    borderColor: '#bbf7d0',
-    justifyContent: 'center',
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
     alignItems: 'center',
+    justifyContent: 'center',
   },
 
-  /* Table States */
-  tableMarketSub: {
-    fontSize: 9,
+  /* Mandi Table */
+  tableCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    overflow: 'hidden',
+    marginBottom: 14,
+  },
+  tableHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  tableColHead: {
+    fontSize: 11,
+    fontWeight: '800',
     color: '#64748b',
-    fontWeight: '500',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  tableCropCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  tableCropThumb: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#f1f5f9',
+  },
+  tableCropName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  tableMarketSub: {
+    fontSize: 10.5,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  tableCellBold: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#15803d',
+    textAlign: 'center',
+  },
+  tableCellRegular: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+    textAlign: 'center',
+  },
+  tableBtnCol: {
+    alignItems: 'center',
+  },
+  detailsBtn: {
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#86efac',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  detailsBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#15803d',
   },
   tableLoadingWrap: {
-    paddingVertical: 24,
+    paddingVertical: 30,
     alignItems: 'center',
     gap: 8,
   },
   tableLoadingText: {
-    fontSize: 11,
+    fontSize: 12.5,
     color: '#64748b',
-    fontWeight: '600',
   },
   tableEmptyWrap: {
     paddingVertical: 24,
     alignItems: 'center',
-    paddingHorizontal: 16,
-    gap: 6,
+    gap: 8,
   },
   tableEmptyText: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#64748b',
     fontWeight: '600',
   },
   resetFilterBtn: {
-    marginTop: 6,
-    backgroundColor: '#f0fdf4',
-    borderWidth: 1,
-    borderColor: '#bbf7d0',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    backgroundColor: '#15803d',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
   resetFilterBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#16a34a',
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '800',
   },
 
   /* Modals */
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
-    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
   districtModalCard: {
+    width: '100%',
     backgroundColor: '#ffffff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderRadius: 20,
     padding: 18,
-    maxHeight: '65%',
   },
   modalHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
   },
   modalTitle: {
     fontSize: 16,
@@ -1297,146 +1768,85 @@ const styles = StyleSheet.create({
   },
   districtOptionItem: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    marginBottom: 4,
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 10,
   },
   districtOptionItemActive: {
     backgroundColor: '#f0fdf4',
   },
   districtOptionText: {
-    fontSize: 13,
-    color: '#334155',
+    fontSize: 14,
     fontWeight: '600',
+    color: '#334155',
   },
   districtOptionTextActive: {
-    color: '#16a34a',
+    color: '#15803d',
     fontWeight: '800',
   },
 
-  /* Mandi Detail Receipt */
-  mandiDetailCard: {
+  /* Detail Modal */
+  detailModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  detailModalCard: {
     backgroundColor: '#ffffff',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
-    maxHeight: '80%',
   },
-  detailCardDrag: {
-    width: 38,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#cbd5e1',
-    alignSelf: 'center',
-    marginBottom: 14,
-  },
-  detailSuperTitle: {
-    fontSize: 11,
-    color: '#16a34a',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  detailCropName: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#0f172a',
-    marginTop: 2,
-  },
-  closeRoundBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#f1f5f9',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  receiptBody: {
-    marginTop: 4,
-  },
-  receiptPriceHero: {
-    backgroundColor: '#f0fdf4',
-    borderWidth: 1,
-    borderColor: '#bbf7d0',
-    borderRadius: 16,
-    padding: 14,
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  receiptPriceLabel: {
-    fontSize: 11,
-    color: '#15803d',
-    fontWeight: '700',
-  },
-  receiptPriceValue: {
-    fontSize: 26,
-    fontWeight: '900',
-    color: '#16a34a',
-    marginVertical: 4,
-  },
-  receiptPriceSub: {
-    fontSize: 11,
-    color: '#64748b',
-    fontWeight: '600',
-  },
-  receiptGrid: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 12,
-    gap: 8,
-    marginBottom: 14,
-  },
-  receiptGridItem: {
+  detailModalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    marginBottom: 16,
   },
-  gridKey: {
-    fontSize: 12,
-    color: '#64748b',
+  detailModalTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#0f172a',
+  },
+  detailModalSub: {
+    fontSize: 13,
     fontWeight: '600',
-  },
-  gridVal: {
-    fontSize: 12.5,
-    color: '#0f172a',
-    fontWeight: '800',
-  },
-  govVerifiedBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 14,
-  },
-  govVerifiedTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  govVerifiedDesc: {
-    fontSize: 9.5,
     color: '#64748b',
     marginTop: 2,
-    lineHeight: 13,
   },
-  closeSheetBtn: {
-    backgroundColor: '#16a34a',
-    paddingVertical: 12,
-    borderRadius: 12,
+  detailGridRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#f8fafc',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+  },
+  detailGridItem: {
     alignItems: 'center',
   },
-  closeSheetBtnText: {
-    color: '#ffffff',
-    fontSize: 13,
+  detailGridLbl: {
+    fontSize: 11,
     fontWeight: '700',
+    color: '#64748b',
+    marginBottom: 4,
+  },
+  detailGridVal: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#0f172a',
+  },
+  detailCloseBtn: {
+    backgroundColor: '#15803d',
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  detailCloseBtnText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '800',
   },
 });
-

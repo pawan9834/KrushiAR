@@ -1,6 +1,7 @@
 // services/imdWeather.ts
 // India Meteorological Department (IMD) Weather Service
 // Mapped to official IMD API Endpoints with live fallback
+import * as Location from 'expo-location';
 
 export const IMD_ENDPOINTS = {
   CITY_FORECAST: 'https://api.imd.gov.in/api/v1/cityforecast',
@@ -9,6 +10,87 @@ export const IMD_ENDPOINTS = {
   DISTRICT_WARNING: 'https://api.imd.gov.in/api/v1/districtwarning',
   DISTRICT_NOWCAST: 'https://api.imd.gov.in/api/v1/districtnowcast',
 };
+
+export const MAHARASHTRA_DISTRICT_COORDS: Record<
+  string,
+  { lat: number; lon: number; nameMr: string; nameHi: string }
+> = {
+  jalgaon: { lat: 21.0077, lon: 75.5626, nameMr: 'जळगाव', nameHi: 'जलगांव' },
+  chopda: { lat: 21.2483, lon: 75.3023, nameMr: 'चोपडा', nameHi: 'चोपड़ा' },
+  dhule: { lat: 20.9042, lon: 74.7749, nameMr: 'धुळे', nameHi: 'धुले' },
+  nandurbar: { lat: 21.3697, lon: 74.2409, nameMr: 'नंदुरबार', nameHi: 'नंदुरबार' },
+  nashik: { lat: 19.9975, lon: 73.7898, nameMr: 'नाशिक', nameHi: 'नासिक' },
+  ahmednagar: { lat: 19.0948, lon: 74.7480, nameMr: 'अहिल्यानगर', nameHi: 'अहमदनगर' },
+  ahilyanagar: { lat: 19.0948, lon: 74.7480, nameMr: 'अहिल्यानगर', nameHi: 'अहिल्यानगर' },
+  pune: { lat: 18.5204, lon: 73.8567, nameMr: 'पुणे', nameHi: 'पुणे' },
+  satara: { lat: 17.6805, lon: 74.0183, nameMr: 'सातारा', nameHi: 'सतारा' },
+  sangli: { lat: 16.8524, lon: 74.5815, nameMr: 'सांगली', nameHi: 'सांगली' },
+  solapur: { lat: 17.6599, lon: 75.9064, nameMr: 'सोलापूर', nameHi: 'सोलापुर' },
+  kolhapur: { lat: 16.7050, lon: 74.2433, nameMr: 'कोल्हापूर', nameHi: 'कोल्हापुर' },
+  aurangabad: { lat: 19.8762, lon: 75.3433, nameMr: 'छत्रपती संभाजीनगर', nameHi: 'संभाजीनगर' },
+  'chhatrapati sambhajinagar': { lat: 19.8762, lon: 75.3433, nameMr: 'छत्रपती संभाजीनगर', nameHi: 'संभाजीनगर' },
+  sambhajinagar: { lat: 19.8762, lon: 75.3433, nameMr: 'छत्रपती संभाजीनगर', nameHi: 'संभाजीनगर' },
+  jalna: { lat: 19.8347, lon: 75.8816, nameMr: 'जालना', nameHi: 'जालना' },
+  beed: { lat: 18.9891, lon: 75.7601, nameMr: 'बीड', nameHi: 'बीड' },
+  latur: { lat: 18.4088, lon: 76.5604, nameMr: 'लातूर', nameHi: 'लातूर' },
+  osmanabad: { lat: 18.1861, lon: 76.0419, nameMr: 'धाराशिव', nameHi: 'उस्मानाबाद' },
+  dharashiv: { lat: 18.1861, lon: 76.0419, nameMr: 'धाराशिव', nameHi: 'धाराशिव' },
+  nanded: { lat: 19.1383, lon: 77.3210, nameMr: 'नांदेड', nameHi: 'नांदेड़' },
+  parbhani: { lat: 19.2686, lon: 76.7708, nameMr: 'परभणी', nameHi: 'परभणी' },
+  hingoli: { lat: 19.7196, lon: 77.1472, nameMr: 'हिंगोली', nameHi: 'हिंगोली' },
+  buldhana: { lat: 20.5292, lon: 76.1843, nameMr: 'बुलढाणा', nameHi: 'बुलढाणा' },
+  akola: { lat: 20.7002, lon: 77.0082, nameMr: 'अकोला', nameHi: 'अकोला' },
+  washim: { lat: 20.1110, lon: 77.1340, nameMr: 'वाशीम', nameHi: 'वाशिम' },
+  amravati: { lat: 20.9374, lon: 77.7796, nameMr: 'अमरावती', nameHi: 'अमरावती' },
+  yavatmal: { lat: 20.3888, lon: 78.1204, nameMr: 'यवतमाळ', nameHi: 'यवतमाल' },
+  wardha: { lat: 20.7453, lon: 78.6022, nameMr: 'वर्धा', nameHi: 'वर्धा' },
+  nagpur: { lat: 21.1458, lon: 79.0882, nameMr: 'नागपूर', nameHi: 'नागपुर' },
+  bhandara: { lat: 21.1685, lon: 79.6558, nameMr: 'भंडारा', nameHi: 'भंडारा' },
+  gondia: { lat: 21.4554, lon: 80.1961, nameMr: 'गोंदिया', nameHi: 'गोंदिया' },
+  chandrapur: { lat: 19.9615, lon: 79.2961, nameMr: 'चंद्रपूर', nameHi: 'चंद्रपुर' },
+  gadchiroli: { lat: 20.1849, lon: 80.0030, nameMr: 'गडचिरोली', nameHi: 'गडचिरोली' },
+  thane: { lat: 19.2183, lon: 72.9781, nameMr: 'ठाणे', nameHi: 'ठाणे' },
+  palghar: { lat: 19.6967, lon: 72.7699, nameMr: 'पालघर', nameHi: 'पालघर' },
+  raigad: { lat: 18.5158, lon: 73.1822, nameMr: 'रायगड', nameHi: 'रायगढ़' },
+  ratnagiri: { lat: 16.9902, lon: 73.3120, nameMr: 'रत्नागिरी', nameHi: 'रत्नागिरी' },
+  sindhudurg: { lat: 16.1264, lon: 73.5594, nameMr: 'सिंधुदुर्ग', nameHi: 'सिंधुदुर्ग' },
+  mumbai: { lat: 18.9220, lon: 72.8347, nameMr: 'मुंबई', nameHi: 'मुंबई' },
+};
+
+/**
+ * Resolves precise coordinates for a registered village/city/district
+ */
+export async function getCoordinatesForLocation(
+  query?: string,
+  district?: string,
+  state: string = 'Maharashtra'
+): Promise<{ lat: number; lon: number }> {
+  const cleanQ = (query || '').toLowerCase().trim();
+  const cleanDist = (district || '').toLowerCase().trim();
+
+  // 1. Direct dictionary match
+  for (const [key, val] of Object.entries(MAHARASHTRA_DISTRICT_COORDS)) {
+    if (cleanDist.includes(key) || cleanQ.includes(key) || key.includes(cleanDist) || key.includes(cleanQ)) {
+      return { lat: val.lat, lon: val.lon };
+    }
+  }
+
+  // 2. Geocode via expo-location if available
+  try {
+    const searchStr = `${query || ''}, ${district || ''}, ${state}, India`.trim().replace(/^,\s*/, '');
+    if (searchStr.length > 3) {
+      const results = await Location.geocodeAsync(searchStr);
+      if (results && results.length > 0 && results[0].latitude) {
+        return { lat: results[0].latitude, lon: results[0].longitude };
+      }
+    }
+  } catch {
+    // fallback gracefully
+  }
+
+  // 3. Default fallback (Jalgaon / Chopda)
+  return { lat: 21.0077, lon: 75.5626 };
+}
 
 export interface IMDWeatherData {
   temperature: number;

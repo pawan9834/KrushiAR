@@ -1,11 +1,9 @@
 // app/(tabs)/_layout.tsx
-import React from 'react';
+import { Home, Sprout, Camera, BookOpen, User } from 'lucide-react-native';
 import { Tabs } from 'expo-router';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { Platform, View, StyleSheet, Text } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useLanguage } from '@/context/LanguageContext';
 
@@ -15,30 +13,30 @@ export default function TabLayout() {
   const { language } = useLanguage();
 
   const bottomInset = insets.bottom > 0 ? insets.bottom : (Platform.OS === 'android' ? 10 : 0);
-  const tabBarHeight = 62 + bottomInset;
+  const tabBarHeight = 68 + bottomInset;
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: '#136f42',
-        tabBarInactiveTintColor: '#64748b',
+        tabBarActiveTintColor: '#15803d',
+        tabBarInactiveTintColor: '#475569',
         tabBarStyle: {
           backgroundColor: '#ffffff',
-          borderTopColor: '#f1f5f9',
-          borderTopWidth: 1,
+          borderTopColor: '#e2e8f0',
+          borderTopWidth: 1.5,
           height: tabBarHeight,
-          paddingBottom: bottomInset > 0 ? bottomInset : 6,
-          paddingTop: 6,
-          elevation: 10,
+          paddingBottom: bottomInset > 0 ? bottomInset + 2 : 8,
+          paddingTop: 8,
+          elevation: 12,
           shadowColor: '#000',
-          shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.05,
-          shadowRadius: 6,
+          shadowOffset: { width: 0, height: -3 },
+          shadowOpacity: 0.08,
+          shadowRadius: 8,
         },
         tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '700',
-          marginTop: 1,
+          fontSize: 12.5,
+          fontWeight: '800',
+          marginTop: 2,
         },
         tabBarHideOnKeyboard: true,
         headerShown: false,
@@ -46,13 +44,13 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: language === 'mr' ? 'मुख्यपृष्ठ' : language === 'hi' ? 'होम' : 'Home',
+          title: language === 'mr' ? 'मुख्य' : language === 'hi' ? 'होम' : 'Home',
           tabBarIcon: ({ focused }) => (
             <View style={[styles.tabIconWrap, focused && styles.tabIconWrapActive]}>
-              <MaterialCommunityIcons
-                name={focused ? 'home' : 'home-outline'}
+              <Home
                 size={24}
-                color={focused ? '#136f42' : '#64748b'}
+                color={focused ? '#15803d' : '#475569'}
+                strokeWidth={focused ? 2.5 : 2}
               />
             </View>
           ),
@@ -64,10 +62,10 @@ export default function TabLayout() {
           title: language === 'mr' ? 'माझी पिके' : language === 'hi' ? 'मेरी फसलें' : 'My Crops',
           tabBarIcon: ({ focused }) => (
             <View style={[styles.tabIconWrap, focused && styles.tabIconWrapActive]}>
-              <MaterialCommunityIcons
-                name={focused ? 'sprout' : 'sprout-outline'}
+              <Sprout
                 size={24}
-                color={focused ? '#136f42' : '#64748b'}
+                color={focused ? '#15803d' : '#475569'}
+                strokeWidth={focused ? 2.5 : 2}
               />
             </View>
           ),
@@ -78,14 +76,14 @@ export default function TabLayout() {
         options={{
           title: language === 'mr' ? 'नोंद करा' : language === 'hi' ? 'दर्ज करें' : 'Record',
           tabBarLabelStyle: {
-            fontSize: 11,
-            fontWeight: '700',
-            color: '#136f42',
-            marginTop: 1,
+            fontSize: 12.5,
+            fontWeight: '900',
+            color: '#15803d',
+            marginTop: 3,
           },
           tabBarIcon: () => (
             <View style={styles.floatingCenterBtn}>
-              <Ionicons name="add" size={28} color="#ffffff" />
+              <Camera size={26} color="#ffffff" strokeWidth={2.2} />
             </View>
           ),
         }}
@@ -96,10 +94,10 @@ export default function TabLayout() {
           title: language === 'mr' ? 'इतिहास' : language === 'hi' ? 'इतिहास' : 'History',
           tabBarIcon: ({ focused }) => (
             <View style={[styles.tabIconWrap, focused && styles.tabIconWrapActive]}>
-              <Ionicons
-                name={focused ? 'time' : 'time-outline'}
-                size={22}
-                color={focused ? '#136f42' : '#64748b'}
+              <BookOpen
+                size={24}
+                color={focused ? '#15803d' : '#475569'}
+                strokeWidth={focused ? 2.5 : 2}
               />
             </View>
           ),
@@ -108,13 +106,13 @@ export default function TabLayout() {
       <Tabs.Screen
         name="settings"
         options={{
-          title: language === 'mr' ? 'प्रोफाइल' : language === 'hi' ? 'प्रोफाइल' : 'Profile',
+          title: language === 'mr' ? 'माझे खाते' : language === 'hi' ? 'खाता' : 'Account',
           tabBarIcon: ({ focused }) => (
             <View style={[styles.tabIconWrap, focused && styles.tabIconWrapActive]}>
-              <Ionicons
-                name={focused ? 'person' : 'person-outline'}
-                size={22}
-                color={focused ? '#136f42' : '#64748b'}
+              <User
+                size={24}
+                color={focused ? '#15803d' : '#475569'}
+                strokeWidth={focused ? 2.5 : 2}
               />
             </View>
           ),
@@ -126,30 +124,31 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   tabIconWrap: {
-    width: 58,
-    height: 30,
-    borderRadius: 15,
+    width: 54,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 1,
   },
   tabIconWrapActive: {
-    backgroundColor: '#e8f5e9',
+    backgroundColor: '#dcfce7',
   },
   floatingCenterBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#136f42',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#15803d',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: -16,
-    elevation: 6,
-    shadowColor: '#136f42',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    borderWidth: 2.5,
+    marginTop: -20,
+    elevation: 8,
+    shadowColor: '#15803d',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    borderWidth: 3,
     borderColor: '#ffffff',
   },
 });
+

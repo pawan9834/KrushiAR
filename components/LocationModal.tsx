@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
   Platform,
 } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { MapPin, X, Home, Navigation } from 'lucide-react-native';
 import { useUserLocation } from '@/context/LocationContext';
 import { useLanguage } from '@/context/LanguageContext';
 
@@ -18,10 +18,11 @@ export default function LocationModal() {
     isLoading,
     permissionStatus,
     requestLocation,
+    reloadFromProfile,
     showLocationModal,
     setShowLocationModal,
   } = useUserLocation();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
   return (
     <Modal
@@ -38,18 +39,22 @@ export default function LocationModal() {
           <View style={styles.headerRow}>
             <View style={styles.titleWrap}>
               <View style={styles.iconCircle}>
-                <Ionicons name="location-sharp" size={18} color="#16a34a" />
+                <MapPin size={18} color="#16a34a" />
               </View>
               <View>
-                <Text style={styles.modalTitle}>Farm Location</Text>
-                <Text style={styles.modalSub}>GPS & Weather Region</Text>
+                <Text style={styles.modalTitle}>
+                  {language === 'mr' ? 'शेताचे स्थान' : language === 'hi' ? 'खेत का स्थान' : 'Farm Location'}
+                </Text>
+                <Text style={styles.modalSub}>
+                  {language === 'mr' ? 'हवामान व सल्ला क्षेत्र' : 'Weather & Advisory Region'}
+                </Text>
               </View>
             </View>
 
             <TouchableOpacity
               onPress={() => setShowLocationModal(false)}
               style={styles.closeBtn}>
-              <Ionicons name="close" size={20} color="#64748b" />
+              <X size={20} color="#64748b" />
             </TouchableOpacity>
           </View>
 
@@ -57,70 +62,90 @@ export default function LocationModal() {
           <View
             style={[
               styles.statusBadge,
-              location.isLive ? styles.statusBadgeLive : styles.statusBadgeDefault,
+              location.isRegisteredLocation || location.isLive ? styles.statusBadgeLive : styles.statusBadgeDefault,
             ]}>
             <View
               style={[
                 styles.statusDot,
-                { backgroundColor: location.isLive ? '#16a34a' : '#f59e0b' },
+                { backgroundColor: location.isRegisteredLocation || location.isLive ? '#16a34a' : '#f59e0b' },
               ]}
             />
             <Text
               style={[
                 styles.statusText,
-                { color: location.isLive ? '#16a34a' : '#d97706' },
+                { color: location.isRegisteredLocation || location.isLive ? '#16a34a' : '#d97706' },
               ]}>
-              {location.isLive ? 'Live GPS Location' : 'Default Farm Location'}
+              {location.isRegisteredLocation
+                ? (language === 'mr' ? 'नोंदणीकृत शेत स्थान ✓' : language === 'hi' ? 'पंजीकृत खेत स्थान ✓' : 'Registered Farm Location ✓')
+                : location.isLive
+                  ? 'Live GPS Location'
+                  : 'Default Location'}
             </Text>
           </View>
 
           {/* Location Info Box */}
           <View style={styles.infoBox}>
             <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>City / Taluka</Text>
+              <Text style={styles.infoLabel}>
+                {language === 'mr' ? 'गाव / तालुका' : 'City / Village'}
+              </Text>
               <Text style={styles.infoVal}>{location.displayCity}</Text>
             </View>
             <View style={styles.divider} />
 
             <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>District</Text>
+              <Text style={styles.infoLabel}>
+                {language === 'mr' ? 'जिल्हा' : 'District'}
+              </Text>
               <Text style={styles.infoVal}>{location.displayDistrict}</Text>
             </View>
             <View style={styles.divider} />
 
             <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>State</Text>
+              <Text style={styles.infoLabel}>
+                {language === 'mr' ? 'राज्य' : 'State'}
+              </Text>
               <Text style={styles.infoVal}>{location.state}</Text>
             </View>
             <View style={styles.divider} />
 
             <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Pincode</Text>
-              <Text style={styles.infoVal}>{location.postalCode}</Text>
-            </View>
-            <View style={styles.divider} />
-
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Coordinates</Text>
-              <Text style={styles.coordVal}>
-                {location.latitude ? `${location.latitude.toFixed(4)}° N, ${location.longitude?.toFixed(4)}° E` : '—'}
+              <Text style={styles.infoLabel}>
+                {language === 'mr' ? 'पिनकोड' : 'Pincode'}
               </Text>
+              <Text style={styles.infoVal}>{location.postalCode || '—'}</Text>
             </View>
           </View>
 
-          {/* Action: Refresh / Detect Location */}
+          {/* Action 1: Use Registered Location */}
           <TouchableOpacity
-            style={styles.detectBtn}
+            style={[styles.detectBtn, { backgroundColor: '#15803d', marginBottom: 8 }]}
+            onPress={async () => {
+              await reloadFromProfile();
+              setShowLocationModal(false);
+            }}
+            activeOpacity={0.8}>
+            <Home size={16} color="#ffffff" style={{ marginRight: 6 }} />
+            <Text style={styles.detectBtnText}>
+              {language === 'mr' ? 'नोंदणीकृत शेत स्थान वापरा' : language === 'hi' ? 'पंजीकृत खेत स्थान उपयोग करें' : 'Use Registered Farm Location'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Action 2: Refresh / Detect GPS Location */}
+          <TouchableOpacity
+            style={[styles.detectBtn, { backgroundColor: '#0284c7', marginBottom: 8 }]}
             onPress={() => requestLocation(true)}
             disabled={isLoading}
             activeOpacity={0.8}>
             {isLoading ? (
               <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 8 }} />
             ) : (
-              <Ionicons name="navigate" size={17} color="#ffffff" style={{ marginRight: 6 }} />
+              <Navigation size={16} color="#ffffff" style={{ marginRight: 6 }} />
             )}
             <Text style={styles.detectBtnText}>
-              {isLoading ? 'Detecting Location...' : 'Detect My Live Location'}
+              {isLoading
+                ? 'Detecting GPS...'
+                : (language === 'mr' ? 'चालू GPS स्थान तपासा' : 'Detect GPS Location')}
             </Text>
           </TouchableOpacity>
 
@@ -129,7 +154,9 @@ export default function LocationModal() {
             style={styles.doneBtn}
             onPress={() => setShowLocationModal(false)}
             activeOpacity={0.8}>
-            <Text style={styles.doneBtnText}>Close</Text>
+            <Text style={styles.doneBtnText}>
+              {language === 'mr' ? 'बंद करा' : 'Close'}
+            </Text>
           </TouchableOpacity>
         </View>
       </TouchableOpacity>

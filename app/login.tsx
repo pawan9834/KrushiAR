@@ -1,6 +1,39 @@
 import { Language, useLanguage } from '@/context/LanguageContext';
-import { setOnboardingComplete, updateFarmerProfile } from '@/services/diaryStorage';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import {
+  addPlot,
+  isOnboardingComplete,
+  isUserRegistered,
+  loadUserOnlineData,
+  setOnboardingComplete,
+  setUserRegistered,
+  updateFarmerProfile,
+} from '@/services/diaryStorage';
+import {
+  checkFarmerRegistrationByPhone,
+  getCurrentUserId,
+  setActiveUserId,
+} from '@/services/firebaseDiary';
+import { lookupPincode } from '@/services/pincodeService';
+import {
+  Check,
+  Sprout,
+  Mic,
+  Scan,
+  CloudSun,
+  ArrowRight,
+  ChevronLeft,
+  XCircle,
+  CheckCircle2,
+  UserPlus,
+  ShieldCheck,
+  Zap,
+  Smartphone,
+  Camera as CameraIcon,
+  User,
+  MailOpen,
+  MapPin,
+  Layers,
+} from 'lucide-react-native';
 import {
   getAuth,
   signInWithPhoneNumber,
@@ -81,8 +114,16 @@ const STEP_TEXTS = {
     profilePhotoOptional: '(ऐच्छिक)',
     profileNameLabel: 'पूर्ण नाव',
     profileNamePlaceholder: 'पवनकुमार पाटील',
+    profilePincodeLabel: 'पिनकोड (Pincode)',
+    profilePincodePlaceholder: '425107',
+    profilePincodeAutoHint: 'पिनकोड टाकताच गाव व जिल्हा आपोआप ओळखले जाईल',
+    profilePincodeSearching: 'पिनकोड वरून गाव व जिल्हा शोधत आहे...',
+    profilePincodeFound: 'स्थान ओळखले ✓',
+    profileVillageSuggestionsLabel: 'खालीलपैकी तुमचे गाव निवडा:',
     profileVillageLabel: 'गाव / तालुका',
     profileVillagePlaceholder: 'चोपडा, जळगाव',
+    profileAreaLabel: 'एकूण शेत जमीन (एकरमध्ये)',
+    profileAreaPlaceholder: '२.५',
     profileBtn: 'माहिती जतन करा',
     profileNameError: 'कृपया तुमचे नाव टाका',
 
@@ -154,8 +195,16 @@ const STEP_TEXTS = {
     profilePhotoOptional: '(वैकल्पिक)',
     profileNameLabel: 'पूरा नाम',
     profileNamePlaceholder: 'पवनकुमार पाटिल',
+    profilePincodeLabel: 'पिनकोड (Pincode)',
+    profilePincodePlaceholder: '425107',
+    profilePincodeAutoHint: 'पिनकोड दर्ज करते ही गांव व जिला अपने आप पहचाना जाएगा',
+    profilePincodeSearching: 'पिनकोड से स्थान खोज रहे हैं...',
+    profilePincodeFound: 'स्थान पहचाना गया ✓',
+    profileVillageSuggestionsLabel: 'नीचे से अपना गांव चुनें:',
     profileVillageLabel: 'गांव / तहसील',
     profileVillagePlaceholder: 'चोपड़ा, जलगांव',
+    profileAreaLabel: 'कुल खेत जमीन (एकड़ में)',
+    profileAreaPlaceholder: '२.५',
     profileBtn: 'जानकारी सहेजें',
     profileNameError: 'कृपया अपना नाम दर्ज करें',
 
@@ -227,8 +276,16 @@ const STEP_TEXTS = {
     profilePhotoOptional: '(Optional)',
     profileNameLabel: 'Full Name',
     profileNamePlaceholder: 'Pawankumar Patil',
+    profilePincodeLabel: 'Pincode',
+    profilePincodePlaceholder: '425107',
+    profilePincodeAutoHint: 'Enter 6-digit pincode to auto-recognize your city & district',
+    profilePincodeSearching: 'Recognizing city from pincode...',
+    profilePincodeFound: 'Location Recognized ✓',
+    profileVillageSuggestionsLabel: 'Select your exact village/area:',
     profileVillageLabel: 'Village / Tehsil',
     profileVillagePlaceholder: 'Chopda, Jalgaon',
+    profileAreaLabel: 'Total Farm Area (in Acres)',
+    profileAreaPlaceholder: '2.5',
     profileBtn: 'Save Profile',
     profileNameError: 'Please enter your name',
 
@@ -257,16 +314,30 @@ export default function LoginScreen() {
   const currentLang: Language = language || 'mr';
   const texts = STEP_TEXTS[currentLang] || STEP_TEXTS.mr;
 
-  // Flow State (0: Welcome, 1: Language, 2: Phone, 3: OTP, 4: Profile, 5: Permissions, 6: Complete)
-  const [currentStep, setCurrentStep] = useState<number>(0);
+  // Flow State (2: Phone/Login, 3: OTP, 4: Profile, 5: Permissions, 6: Complete)
+  const [currentStep, setCurrentStep] = useState<number>(2);
 
-  // Form Fields
-  const [phoneNumber, setPhoneNumber] = useState('8275123456');
-  const [otpDigits, setOtpDigits] = useState<string[]>(['4', '7', '2', '1', '9', '0']);
-  const [timerSeconds, setTimerSeconds] = useState(25);
-  const [profileName, setProfileName] = useState('पवनकुमार पाटील');
-  const [profileVillage, setProfileVillage] = useState('चोपडा, जळगाव');
+  // Form Fields (Clean initial state for real users)
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const [timerSeconds, setTimerSeconds] = useState(60);
+  const [profileName, setProfileName] = useState('');
+  const [profileVillage, setProfileVillage] = useState('');
+  const [profilePincode, setProfilePincode] = useState('');
+  const [profileDistrict, setProfileDistrict] = useState('');
+  const [profileState, setProfileState] = useState('');
+  const [profileArea, setProfileArea] = useState('');
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+
+  // Pincode auto-recognition state
+  const [isSearchingPincode, setIsSearchingPincode] = useState(false);
+  const [pincodeSuccessMsg, setPincodeSuccessMsg] = useState<string | null>(null);
+  const [villageSuggestions, setVillageSuggestions] = useState<string[]>([]);
+
+  // Phone registration scan state
+  const [isCheckingPhone, setIsCheckingPhone] = useState(false);
+  const [isExistingUser, setIsExistingUser] = useState<boolean | null>(null);
+  const [existingFarmerName, setExistingFarmerName] = useState<string | null>(null);
 
   // Permissions state
   const [hasCameraPerm, setHasCameraPerm] = useState(false);
@@ -276,6 +347,57 @@ export default function LoginScreen() {
   // Firebase Phone Auth confirmation state
   const [confirmResult, setConfirmResult] = useState<ConfirmationResult | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
+
+  // Handle phone number change and scan registration status
+  const handlePhoneNumberChange = (val: string) => {
+    const cleaned = val.replace(/\D/g, '').slice(0, 10);
+    setPhoneNumber(cleaned);
+
+    if (cleaned.length === 10) {
+      setIsCheckingPhone(true);
+      checkFarmerRegistrationByPhone(cleaned)
+        .then((res) => {
+          if (res.isRegistered) {
+            setIsExistingUser(true);
+            setExistingFarmerName(res.farmer?.name || null);
+            if (res.farmer?.name) {
+              setProfileName(res.farmer.name);
+            }
+            if (res.farmer?.village) {
+              setProfileVillage(res.farmer.village);
+            }
+          } else {
+            setIsExistingUser(false);
+            setExistingFarmerName(null);
+          }
+        })
+        .catch(() => {
+          setIsExistingUser(false);
+        })
+        .finally(() => {
+          setIsCheckingPhone(false);
+        });
+    } else {
+      setIsCheckingPhone(false);
+      setIsExistingUser(null);
+      setExistingFarmerName(null);
+    }
+  };
+
+  // Check existing session on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const onboarded = await isOnboardingComplete();
+        const auth = getAuth();
+        if (auth.currentUser || onboarded) {
+          router.replace('/(tabs)');
+        }
+      } catch (err) {
+        console.warn('Login session check warning:', err);
+      }
+    })();
+  }, []);
 
   // Check existing permissions when entering step 5
   useEffect(() => {
@@ -314,13 +436,6 @@ export default function LoginScreen() {
   // Handle Language selection
   const handleSelectLanguage = (lang: Language) => {
     setLanguage(lang);
-    if (lang === 'en' && profileName === 'पवनकुमार पाटील') {
-      setProfileName('Pawankumar Patil');
-      setProfileVillage('Chopda, Jalgaon');
-    } else if (lang === 'mr' && profileName === 'Pawankumar Patil') {
-      setProfileName('पवनकुमार पाटील');
-      setProfileVillage('चोपडा, जळगाव');
-    }
   };
 
   // Step 2: Submit Phone via Firebase Phone Auth
@@ -333,6 +448,19 @@ export default function LoginScreen() {
 
     const fullPhone = `+91${cleaned.slice(-10)}`;
     setIsAuthLoading(true);
+
+    // Fast inline check if registration scan was not finished yet
+    if (isExistingUser === null) {
+      try {
+        const quickCheck = await checkFarmerRegistrationByPhone(cleaned);
+        if (quickCheck.isRegistered) {
+          setIsExistingUser(true);
+          setExistingFarmerName(quickCheck.farmer?.name || null);
+        } else {
+          setIsExistingUser(false);
+        }
+      } catch {}
+    }
 
     try {
       const auth = getAuth();
@@ -410,9 +538,11 @@ export default function LoginScreen() {
 
     setIsAuthLoading(true);
     try {
+      let authenticatedUid: string | null = null;
       if (confirmResult) {
         const userCredential = await confirmResult.confirm(entered);
-        console.log('Firebase user authenticated successfully, UID:', userCredential?.user?.uid);
+        authenticatedUid = userCredential?.user?.uid || null;
+        console.log('Firebase user authenticated successfully, UID:', authenticatedUid);
       } else {
         // Fallback demo/test verification
         if (entered !== '472190' && entered !== '123456') {
@@ -420,7 +550,29 @@ export default function LoginScreen() {
           setIsAuthLoading(false);
           return;
         }
+        const cleaned = phoneNumber.replace(/\D/g, '').slice(-10);
+        authenticatedUid = `farmer_${cleaned}`;
       }
+
+      if (authenticatedUid) {
+        setActiveUserId(authenticatedUid);
+      }
+
+      // Check if user is ALREADY REGISTERED in Firebase Cloud Firestore
+      const regCheck = await checkFarmerRegistrationByPhone(phoneNumber);
+      const isRegisteredOnline = regCheck.isRegistered || (await isUserRegistered(phoneNumber));
+
+      if (isRegisteredOnline) {
+        // Direct Login: User already exists, restore online data & proceed directly to account!
+        const targetUid = authenticatedUid || regCheck.userId || getCurrentUserId();
+        await loadUserOnlineData(targetUid);
+        await setOnboardingComplete(true);
+        await setUserRegistered(true);
+        router.replace('/(tabs)');
+        return;
+      }
+
+      // First-time user registration flow: User needs to add profile details
       setCurrentStep(4);
     } catch (err: any) {
       console.warn('Firebase OTP verification error:', err);
@@ -454,25 +606,91 @@ export default function LoginScreen() {
     }
   };
 
+  // Step 4: Pincode change handler calling postalpincode API
+  const handlePincodeChange = async (val: string) => {
+    const digits = val.replace(/\D/g, '').slice(0, 6);
+    setProfilePincode(digits);
+
+    if (digits.length === 6) {
+      setIsSearchingPincode(true);
+      setPincodeSuccessMsg(null);
+      try {
+        const info = await lookupPincode(digits);
+        if (info) {
+          setProfileDistrict(info.district);
+          setProfileState(info.state);
+          const recognizedCity = `${info.city}, ${info.district}`;
+          setProfileVillage(recognizedCity);
+          setPincodeSuccessMsg(`${info.city}, ${info.district}, ${info.state}`);
+          if (info.postOffices && info.postOffices.length > 0) {
+            setVillageSuggestions(info.postOffices);
+          }
+        } else {
+          setPincodeSuccessMsg(null);
+          setVillageSuggestions([]);
+        }
+      } catch {
+        setPincodeSuccessMsg(null);
+      } finally {
+        setIsSearchingPincode(false);
+      }
+    } else {
+      setIsSearchingPincode(false);
+      setPincodeSuccessMsg(null);
+      setVillageSuggestions([]);
+    }
+  };
+
+  const handleSelectVillageSuggestion = (villageName: string) => {
+    const dist = profileDistrict ? `, ${profileDistrict}` : '';
+    setProfileVillage(`${villageName}${dist}`);
+  };
+
   const handleProfileSubmit = async () => {
     if (!profileName.trim()) {
       Alert.alert('सूचना', texts.profileNameError);
       return;
     }
 
+    const cleaned = phoneNumber.replace(/\D/g, '').slice(-10);
+    const uid = getAuth().currentUser?.uid || `farmer_${cleaned}`;
+    setActiveUserId(uid);
+    setIsAuthLoading(true);
+
     try {
+      // Save farmer profile online to Cloud Firestore with pincode & recognized location
       await updateFarmerProfile({
+        id: uid,
         name: profileName.trim(),
-        village: profileVillage.trim() || 'चोपडा',
+        village: profileVillage.trim(),
+        district: profileDistrict.trim(),
+        state: profileState.trim(),
+        pincode: profilePincode.trim(),
         phone: phoneNumber,
+        totalArea: profileArea.trim(),
+        areaUnit: currentLang === 'en' ? 'Acres' : 'एकर',
         preferredLanguage: currentLang,
         avatarUri: profilePhoto || undefined,
       });
-    } catch (err) {
-      console.warn('Error saving profile:', err);
-    }
 
-    setCurrentStep(5);
+      // Create initial plot in Cloud Firestore online
+      await addPlot({
+        name: currentLang === 'mr' ? 'शेताचा तुकडा १' : currentLang === 'hi' ? 'खेत का टुकड़ा १' : 'Farm Plot 1',
+        area: profileArea.trim() || '२.०',
+        areaUnit: currentLang === 'en' ? 'Acres' : 'एकर',
+        soilType: currentLang === 'mr' ? 'काळी कसदार जमीन' : 'Fertile Black Soil',
+        irrigationType: currentLang === 'mr' ? 'ठिबक सिंचन' : 'Drip Irrigation',
+      });
+
+      await setUserRegistered(true);
+      await setOnboardingComplete(true);
+      setCurrentStep(5);
+    } catch (err) {
+      console.warn('Error saving profile online:', err);
+      setCurrentStep(5);
+    } finally {
+      setIsAuthLoading(false);
+    }
   };
 
   // Step 5: Individual permission request functions
@@ -519,26 +737,26 @@ export default function LoginScreen() {
 
   // Step 6: Finish onboarding and navigate to Home
   const handleFinishOnboarding = async () => {
+    await setUserRegistered(true);
     await setOnboardingComplete(true);
     router.replace('/(tabs)');
   };
 
   // Back button handler
   const handleGoBack = () => {
-    if (currentStep > 0) {
+    if (currentStep > 2) {
       setCurrentStep(currentStep - 1);
     }
   };
 
   // Helper Stepper indicator
   const renderStepIndicator = () => {
-    if (currentStep === 0 || currentStep === 6) return null;
+    if (currentStep < 2 || currentStep === 6) return null;
     const steps = [
-      { id: 1, label: texts.step1Name },
-      { id: 2, label: texts.step2Name },
-      { id: 3, label: texts.step3Name },
-      { id: 4, label: texts.step4Name },
-      { id: 5, label: texts.step5Name },
+      { id: 2, num: 1, label: texts.step2Name },
+      { id: 3, num: 2, label: texts.step3Name },
+      { id: 4, num: 3, label: texts.step4Name },
+      { id: 5, num: 4, label: texts.step5Name },
     ];
 
     return (
@@ -557,7 +775,7 @@ export default function LoginScreen() {
                   ]}
                 >
                   {isDone ? (
-                    <Ionicons name="checkmark" size={13} color="#ffffff" />
+                    <Check size={13} color="#ffffff" strokeWidth={3} />
                   ) : (
                     <Text
                       style={[
@@ -565,7 +783,7 @@ export default function LoginScreen() {
                         isActive && styles.stepBadgeTextActive,
                       ]}
                     >
-                      {st.id}
+                      {st.num}
                     </Text>
                   )}
                 </View>
@@ -639,7 +857,7 @@ export default function LoginScreen() {
           <SafeAreaView edges={['top']} style={styles.topBarContainer}>
             <View style={styles.topBarInner}>
               <View style={styles.brandPill}>
-                <MaterialCommunityIcons name="sprout" size={18} color="#22c55e" />
+                <Sprout size={18} color="#22c55e" />
                 <Text style={styles.brandPillText}>KrushiAR</Text>
               </View>
               {renderLanguageSwitchHeader()}
@@ -665,7 +883,7 @@ export default function LoginScreen() {
             {/* 1. Voice Record Feature */}
             <View style={styles.featureRow}>
               <View style={[styles.featureIconWrap, { backgroundColor: '#dcfce7' }]}>
-                <Ionicons name="mic" size={22} color="#15803d" />
+                <Mic size={22} color="#15803d" />
               </View>
               <View style={styles.featureTextWrap}>
                 <Text style={styles.featureTitle}>{texts.feature1Title}</Text>
@@ -676,7 +894,7 @@ export default function LoginScreen() {
             {/* 2. Crop Doctor */}
             <View style={styles.featureRow}>
               <View style={[styles.featureIconWrap, { backgroundColor: '#e0f2fe' }]}>
-                <Ionicons name="scan" size={22} color="#0284c7" />
+                <Scan size={22} color="#0284c7" />
               </View>
               <View style={styles.featureTextWrap}>
                 <Text style={styles.featureTitle}>{texts.feature2Title}</Text>
@@ -687,7 +905,7 @@ export default function LoginScreen() {
             {/* 3. Weather & Mandi */}
             <View style={styles.featureRow}>
               <View style={[styles.featureIconWrap, { backgroundColor: '#fef3c7' }]}>
-                <Ionicons name="partly-sunny" size={22} color="#d97706" />
+                <CloudSun size={22} color="#d97706" />
               </View>
               <View style={styles.featureTextWrap}>
                 <Text style={styles.featureTitle}>{texts.feature3Title}</Text>
@@ -703,7 +921,7 @@ export default function LoginScreen() {
             activeOpacity={0.88}
           >
             <Text style={styles.actionGreenBtnText}>{texts.welcomeBtn}</Text>
-            <Ionicons name="arrow-forward" size={20} color="#ffffff" style={{ marginLeft: 6 }} />
+            <ArrowRight size={20} color="#ffffff" style={{ marginLeft: 6 }} />
           </TouchableOpacity>
         </SafeAreaView>
       </View>
@@ -728,13 +946,13 @@ export default function LoginScreen() {
 
         <SafeAreaView edges={['top']} style={styles.compactHeaderTop}>
           <View style={styles.headerNavRow}>
-            {currentStep > 0 && currentStep < 6 ? (
+            {currentStep > 2 && currentStep < 6 ? (
               <TouchableOpacity
                 style={styles.navRoundBtn}
                 onPress={handleGoBack}
                 activeOpacity={0.7}
               >
-                <Ionicons name="chevron-back" size={22} color="#ffffff" />
+                <ChevronLeft size={22} color="#ffffff" />
               </TouchableOpacity>
             ) : (
               <View style={{ width: 38 }} />
@@ -862,7 +1080,7 @@ export default function LoginScreen() {
                   activeOpacity={0.88}
                 >
                   <Text style={styles.actionGreenBtnText}>{texts.langNext}</Text>
-                  <Ionicons name="arrow-forward" size={18} color="#ffffff" style={{ marginLeft: 6 }} />
+                  <ArrowRight size={18} color="#ffffff" style={{ marginLeft: 6 }} />
                 </TouchableOpacity>
               </View>
             )}
@@ -885,7 +1103,7 @@ export default function LoginScreen() {
                   <TextInput
                     style={styles.mobileTextInput}
                     value={phoneNumber}
-                    onChangeText={setPhoneNumber}
+                    onChangeText={handlePhoneNumberChange}
                     keyboardType="phone-pad"
                     placeholder={texts.phonePlaceholder}
                     placeholderTextColor="#94a3b8"
@@ -894,22 +1112,81 @@ export default function LoginScreen() {
                   />
                   {phoneNumber.length > 0 && (
                     <TouchableOpacity
-                      onPress={() => setPhoneNumber('')}
+                      onPress={() => handlePhoneNumberChange('')}
                       style={{ padding: 4 }}
                     >
-                      <Ionicons name="close-circle" size={18} color="#94a3b8" />
+                      <XCircle size={18} color="#94a3b8" />
                     </TouchableOpacity>
                   )}
                 </View>
 
+                {/* Registration Scan Status Pill */}
+                {isCheckingPhone && (
+                  <View style={styles.phoneCheckStatusPill}>
+                    <ActivityIndicator size="small" color="#15803d" />
+                    <Text style={styles.phoneCheckStatusText}>
+                      {currentLang === 'mr'
+                        ? 'डेटाबेसमध्ये शेतकरी तपासत आहे...'
+                        : currentLang === 'hi'
+                        ? 'डेटाबेस में किसान जांच रहे हैं...'
+                        : 'Checking registration in database...'}
+                    </Text>
+                  </View>
+                )}
+
+                {isExistingUser === true && (
+                  <View style={styles.existingUserBadge}>
+                    <CheckCircle2 size={18} color="#15803d" />
+                    <View style={{ flex: 1, marginLeft: 8 }}>
+                      <Text style={styles.existingUserTitle}>
+                        {currentLang === 'mr'
+                          ? `✓ नोंदणीकृत शेतकरी आढळले`
+                          : currentLang === 'hi'
+                          ? `✓ पंजीकृत किसान मिले`
+                          : `✓ Registered Farmer Found`}
+                        {existingFarmerName ? ` (${existingFarmerName})` : ''}
+                      </Text>
+                      <Text style={styles.existingUserSub}>
+                        {currentLang === 'mr'
+                          ? 'OTP पडताळणीनंतर थेट खात्यात लॉगिन होईल.'
+                          : currentLang === 'hi'
+                          ? 'OTP सत्यापन के बाद सीधे खाते में लॉगिन होगा।'
+                          : 'Direct account login after OTP verification.'}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                {isExistingUser === false && (
+                  <View style={styles.newUserBadge}>
+                    <UserPlus size={16} color="#0284c7" />
+                    <View style={{ flex: 1, marginLeft: 8 }}>
+                      <Text style={styles.newUserTitle}>
+                        {currentLang === 'mr'
+                          ? 'नवीन शेतकरी नोंदणी'
+                          : currentLang === 'hi'
+                          ? 'नया किसान खाता'
+                          : 'New Farmer Registration'}
+                      </Text>
+                      <Text style={styles.newUserSub}>
+                        {currentLang === 'mr'
+                          ? 'OTP पडताळणीनंतर तुमची प्रोफाइल माहिती भरा.'
+                          : currentLang === 'hi'
+                          ? 'OTP सत्यापन के बाद अपनी प्रोफाइल भरें।'
+                          : 'You will add profile details after OTP verification.'}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
                 {/* Trust Badges */}
                 <View style={styles.trustBadgesRow}>
                   <View style={styles.trustPill}>
-                    <Ionicons name="shield-checkmark" size={14} color="#16a34a" />
+                    <ShieldCheck size={14} color="#16a34a" />
                     <Text style={styles.trustPillText}>{texts.phoneTrust1}</Text>
                   </View>
                   <View style={styles.trustPill}>
-                    <Ionicons name="flash" size={14} color="#0284c7" />
+                    <Zap size={14} color="#0284c7" />
                     <Text style={styles.trustPillText}>{texts.phoneTrust2}</Text>
                   </View>
                 </View>
@@ -925,8 +1202,22 @@ export default function LoginScreen() {
                     <ActivityIndicator size="small" color="#ffffff" />
                   ) : (
                     <>
-                      <Text style={styles.actionGreenBtnText}>{texts.phoneBtn}</Text>
-                      <Ionicons name="arrow-forward" size={18} color="#ffffff" style={{ marginLeft: 6 }} />
+                      <Text style={styles.actionGreenBtnText}>
+                        {isExistingUser === true
+                          ? currentLang === 'mr'
+                            ? 'OTP मिळवा व थेट लॉगिन करा'
+                            : currentLang === 'hi'
+                            ? 'OTP प्राप्त करें और लॉगिन करें'
+                            : 'Get OTP & Log In'
+                          : isExistingUser === false
+                          ? currentLang === 'mr'
+                            ? 'OTP मिळवा आणि नोंदणी करा'
+                            : currentLang === 'hi'
+                            ? 'OTP प्राप्त करें और रजिस्टर करें'
+                            : 'Get OTP & Register'
+                          : texts.phoneBtn}
+                      </Text>
+                      <ArrowRight size={18} color="#ffffff" style={{ marginLeft: 6 }} />
                     </>
                   )}
                 </TouchableOpacity>
@@ -943,7 +1234,7 @@ export default function LoginScreen() {
 
                 {/* Phone Pill */}
                 <View style={styles.otpTargetPill}>
-                  <Ionicons name="phone-portrait-outline" size={16} color="#15803d" />
+                  <Smartphone size={16} color="#15803d" />
                   <Text style={styles.otpTargetNumber}>+91 {phoneNumber}</Text>
                   <TouchableOpacity
                     onPress={() => setCurrentStep(2)}
@@ -1008,7 +1299,7 @@ export default function LoginScreen() {
                   ) : (
                     <>
                       <Text style={styles.actionGreenBtnText}>{texts.otpBtn}</Text>
-                      <Ionicons name="checkmark-circle" size={18} color="#ffffff" style={{ marginLeft: 6 }} />
+                      <CheckCircle2 size={18} color="#ffffff" style={{ marginLeft: 6 }} />
                     </>
                   )}
                 </TouchableOpacity>
@@ -1048,7 +1339,7 @@ export default function LoginScreen() {
                       />
                     )}
                     <View style={styles.cameraIconBadge}>
-                      <Ionicons name="camera" size={14} color="#ffffff" />
+                      <CameraIcon size={14} color="#ffffff" />
                     </View>
                   </TouchableOpacity>
 
@@ -1066,7 +1357,7 @@ export default function LoginScreen() {
                 <View style={styles.profileInputWrapper}>
                   <Text style={styles.inputFieldLabel}>{texts.profileNameLabel}</Text>
                   <View style={styles.profileInputField}>
-                    <Ionicons name="person-outline" size={18} color="#15803d" />
+                    <User size={18} color="#15803d" />
                     <TextInput
                       style={styles.profileInputText}
                       value={profileName}
@@ -1077,11 +1368,73 @@ export default function LoginScreen() {
                   </View>
                 </View>
 
+                {/* Pincode Input (Auto-recognize City via postalpincode API) */}
+                <View style={[styles.profileInputWrapper, { marginTop: 14 }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={styles.inputFieldLabel}>{texts.profilePincodeLabel}</Text>
+                    {isSearchingPincode && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <ActivityIndicator size="small" color="#15803d" />
+                        <Text style={styles.pincodeSearchingText}>{texts.profilePincodeSearching}</Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={styles.profileInputField}>
+                    <MailOpen size={18} color="#15803d" />
+                    <TextInput
+                      style={styles.profileInputText}
+                      value={profilePincode}
+                      onChangeText={handlePincodeChange}
+                      placeholder={texts.profilePincodePlaceholder}
+                      placeholderTextColor="#94a3b8"
+                      keyboardType="number-pad"
+                      maxLength={6}
+                    />
+                    {profilePincode.length === 6 && !isSearchingPincode && (
+                      <CheckCircle2 size={18} color="#16a34a" />
+                    )}
+                  </View>
+
+                  {/* Recognized City/District Badge */}
+                  {pincodeSuccessMsg && (
+                    <View style={styles.pincodeRecognizedBadge}>
+                      <MapPin size={15} color="#15803d" />
+                      <Text style={styles.pincodeRecognizedText}>
+                        {texts.profilePincodeFound}: {pincodeSuccessMsg}
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Village Suggestions Chips */}
+                  {villageSuggestions.length > 0 && (
+                    <View style={{ marginTop: 6 }}>
+                      <Text style={styles.villageSuggestionLabel}>{texts.profileVillageSuggestionsLabel}</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
+                        {villageSuggestions.map((vName) => {
+                          const isSel = profileVillage.startsWith(vName);
+                          return (
+                            <TouchableOpacity
+                              key={vName}
+                              style={[styles.villageSuggestChip, isSel && styles.villageSuggestChipActive]}
+                              onPress={() => handleSelectVillageSuggestion(vName)}
+                              activeOpacity={0.75}
+                            >
+                              <Text style={[styles.villageSuggestChipText, isSel && styles.villageSuggestChipTextActive]}>
+                                {vName}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+
                 {/* Village / City Input */}
                 <View style={[styles.profileInputWrapper, { marginTop: 14 }]}>
                   <Text style={styles.inputFieldLabel}>{texts.profileVillageLabel}</Text>
                   <View style={styles.profileInputField}>
-                    <Ionicons name="location-outline" size={18} color="#15803d" />
+                    <MapPin size={18} color="#15803d" />
                     <TextInput
                       style={styles.profileInputText}
                       value={profileVillage}
@@ -1092,14 +1445,49 @@ export default function LoginScreen() {
                   </View>
                 </View>
 
-                {/* Save Button */}
+                {/* Total Farm Area Input */}
+                <View style={[styles.profileInputWrapper, { marginTop: 14 }]}>
+                  <Text style={styles.inputFieldLabel}>{texts.profileAreaLabel}</Text>
+                  <View style={styles.profileInputField}>
+                    <Layers size={18} color="#15803d" />
+                    <TextInput
+                      style={styles.profileInputText}
+                      value={profileArea}
+                      onChangeText={setProfileArea}
+                      placeholder={texts.profileAreaPlaceholder}
+                      placeholderTextColor="#94a3b8"
+                    />
+                  </View>
+                </View>
+
+                {/* Save Button with Circular Loader */}
                 <TouchableOpacity
-                  style={[styles.actionGreenBtn, { marginTop: 24 }]}
+                  style={[
+                    styles.actionGreenBtn,
+                    { marginTop: 24 },
+                    isAuthLoading && { opacity: 0.8 },
+                  ]}
                   onPress={handleProfileSubmit}
+                  disabled={isAuthLoading}
                   activeOpacity={0.88}
                 >
-                  <Text style={styles.actionGreenBtnText}>{texts.profileBtn}</Text>
-                  <Ionicons name="arrow-forward" size={18} color="#ffffff" style={{ marginLeft: 6 }} />
+                  {isAuthLoading ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                      <ActivityIndicator size="small" color="#ffffff" />
+                      <Text style={styles.actionGreenBtnText}>
+                        {currentLang === 'mr'
+                          ? 'माहिती जतन होत आहे...'
+                          : currentLang === 'hi'
+                          ? 'जानकारी सहेजी जा रही है...'
+                          : 'Saving Details...'}
+                      </Text>
+                    </View>
+                  ) : (
+                    <>
+                      <Text style={styles.actionGreenBtnText}>{texts.profileBtn}</Text>
+                      <ArrowRight size={18} color="#ffffff" style={{ marginLeft: 6 }} />
+                    </>
+                  )}
                 </TouchableOpacity>
               </View>
             )}
@@ -1123,7 +1511,7 @@ export default function LoginScreen() {
                     activeOpacity={0.82}
                   >
                     <View style={[styles.permIconBadge, { backgroundColor: '#e0f2fe' }]}>
-                      <Ionicons name="camera" size={22} color="#0284c7" />
+                      <CameraIcon size={22} color="#0284c7" />
                     </View>
                     <View style={styles.permTextGroup}>
                       <Text style={styles.permItemTitle}>{texts.permCameraTitle}</Text>
@@ -1156,7 +1544,7 @@ export default function LoginScreen() {
                     activeOpacity={0.82}
                   >
                     <View style={[styles.permIconBadge, { backgroundColor: '#dcfce7' }]}>
-                      <Ionicons name="mic" size={22} color="#15803d" />
+                      <Mic size={22} color="#15803d" />
                     </View>
                     <View style={styles.permTextGroup}>
                       <Text style={styles.permItemTitle}>{texts.permMicTitle}</Text>
@@ -1189,7 +1577,7 @@ export default function LoginScreen() {
                     activeOpacity={0.82}
                   >
                     <View style={[styles.permIconBadge, { backgroundColor: '#fef3c7' }]}>
-                      <Ionicons name="location" size={22} color="#d97706" />
+                      <MapPin size={22} color="#d97706" />
                     </View>
                     <View style={styles.permTextGroup}>
                       <Text style={styles.permItemTitle}>{texts.permGpsTitle}</Text>
@@ -1220,7 +1608,7 @@ export default function LoginScreen() {
                   activeOpacity={0.88}
                 >
                   <Text style={styles.actionGreenBtnText}>{texts.permBtn}</Text>
-                  <Ionicons name="arrow-forward" size={18} color="#ffffff" style={{ marginLeft: 6 }} />
+                  <ArrowRight size={18} color="#ffffff" style={{ marginLeft: 6 }} />
                 </TouchableOpacity>
 
                 {/* Skip Link */}
@@ -1241,7 +1629,7 @@ export default function LoginScreen() {
               <View style={styles.celebrationBox}>
                 {/* Big Green Badge */}
                 <View style={styles.celebrateCheckWrap}>
-                  <Ionicons name="checkmark-circle" size={72} color="#16a34a" />
+                  <CheckCircle2 size={72} color="#16a34a" />
                 </View>
 
                 <Text style={styles.celebrateTitle}>{texts.completeTitle}</Text>
@@ -1718,6 +2106,67 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
+  // Scan Status & Badges
+  phoneCheckStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0fdf4',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    marginTop: 10,
+    gap: 8,
+  },
+  phoneCheckStatusText: {
+    fontSize: 12,
+    color: '#15803d',
+    fontWeight: '600',
+  },
+  existingUserBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#dcfce7',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#86efac',
+    marginTop: 12,
+  },
+  existingUserTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#15803d',
+  },
+  existingUserSub: {
+    fontSize: 11,
+    color: '#166534',
+    marginTop: 2,
+  },
+  newUserBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f9ff',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#bae6fd',
+    marginTop: 12,
+  },
+  newUserTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0369a1',
+  },
+  newUserSub: {
+    fontSize: 11,
+    color: '#075985',
+    marginTop: 2,
+  },
+
   // Step 3: OTP
   otpTargetPill: {
     flexDirection: 'row',
@@ -1873,6 +2322,56 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0f172a',
     paddingVertical: 0,
+  },
+  pincodeSearchingText: {
+    fontSize: 11,
+    color: '#15803d',
+    fontWeight: '600',
+  },
+  pincodeRecognizedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#dcfce7',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    marginTop: 6,
+    gap: 5,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  pincodeRecognizedText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#15803d',
+  },
+  villageSuggestionLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
+    marginTop: 2,
+  },
+  villageSuggestChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    marginRight: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  villageSuggestChipActive: {
+    backgroundColor: '#15803d',
+    borderColor: '#15803d',
+  },
+  villageSuggestChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  villageSuggestChipTextActive: {
+    color: '#ffffff',
+    fontWeight: '700',
   },
 
   // Step 5: Permissions

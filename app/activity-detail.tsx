@@ -1,6 +1,6 @@
 // app/activity-detail.tsx
 // Activity Detail Screen - Screen 5 matching Reference UI
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,7 +14,23 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import {
+  ChevronLeft,
+  Pencil,
+  Trash2,
+  Sprout,
+  Calendar,
+  Cloud,
+  MapPin,
+  CheckCircle2,
+  Users,
+  Wallet,
+  Pause,
+  Play,
+  FileText,
+  Navigation,
+  XCircle,
+} from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '@/context/LanguageContext';
@@ -24,13 +40,8 @@ import {
   deleteActivity,
   updateActivity,
 } from '@/services/diaryStorage';
-
-let Speech: typeof import('expo-speech') | null = null;
-try {
-  Speech = require('expo-speech');
-} catch (e) {
-  // Graceful fallback
-}
+import * as Speech from 'expo-speech';
+import { createAudioPlayer, AudioPlayer } from 'expo-audio';
 
 export default function ActivityDetailScreen() {
   const insets = useSafeAreaInsets();
@@ -40,6 +51,7 @@ export default function ActivityDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [record, setRecord] = useState<ActivityRecord | null>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const audioPlayerRef = useRef<AudioPlayer | null>(null);
 
   // Edit Modal State
   const [showEditModal, setShowEditModal] = useState(false);
@@ -47,15 +59,6 @@ export default function ActivityDetailScreen() {
   const [editCrop, setEditCrop] = useState('');
   const [editExpense, setEditExpense] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
-
-  useEffect(() => {
-    loadRecord();
-    return () => {
-      try {
-        if (Speech) Speech.stop();
-      } catch {}
-    };
-  }, [id]);
 
   const loadRecord = async () => {
     if (!id) return;
@@ -65,12 +68,29 @@ export default function ActivityDetailScreen() {
       if (data) {
         setRecord(data);
       }
-    } catch (err) {
-      console.warn('Error fetching record detail:', err);
+    } catch {
+      console.warn('Error fetching record detail');
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadRecord();
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      try {
+        if (Speech) Speech.stop();
+        if (audioPlayerRef.current) {
+          audioPlayerRef.current.pause();
+          audioPlayerRef.current.remove();
+          audioPlayerRef.current = null;
+        }
+      } catch {}
+    };
+  }, [id]);
 
   const handleStartEdit = () => {
     setEditTitle(record?.activityTitle || displayTitle);
@@ -99,23 +119,58 @@ export default function ActivityDetailScreen() {
   };
 
   const handleTogglePlayAudio = () => {
-    if (!Speech) return;
     try {
       if (isPlayingAudio) {
-        Speech.stop();
+        if (Speech) Speech.stop();
+        if (audioPlayerRef.current) {
+          audioPlayerRef.current.pause();
+          audioPlayerRef.current.remove();
+          audioPlayerRef.current = null;
+        }
         setIsPlayingAudio(false);
-      } else {
+        return;
+      }
+
+      if (Speech) Speech.stop();
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
+        audioPlayerRef.current.remove();
+        audioPlayerRef.current = null;
+      }
+
+      // If farmer's recorded voice exists, play the recorded audio
+      if (record?.audioUri) {
+        console.log('▶️ Playing farmer voice recording in detail screen:', record.audioUri);
         setIsPlayingAudio(true);
-        const transcriptText = record?.voiceTranscript || 'आज मी टोमॅटोची लागवड केली.';
+        const player = createAudioPlayer(record.audioUri);
+        audioPlayerRef.current = player;
+        player.addListener('playbackStatusUpdate', (status) => {
+          if (status.didJustFinish) {
+            console.log('⏹️ Voice recording playback finished in detail.');
+            setIsPlayingAudio(false);
+            player.remove();
+            audioPlayerRef.current = null;
+          }
+        });
+        player.play();
+        return;
+      }
+
+      // Fallback to TTS if no recorded voice is attached
+      if (Speech) {
+        setIsPlayingAudio(true);
+        const transcriptText = record?.voiceTranscript || record?.activityTitle || 'नोंद';
+        const speechLang = language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-IN';
         Speech.speak(transcriptText, {
-          language: 'mr-IN',
+          language: speechLang,
           rate: 0.88,
           onDone: () => setIsPlayingAudio(false),
           onStopped: () => setIsPlayingAudio(false),
           onError: () => setIsPlayingAudio(false),
         });
       }
-    } catch {
+    } catch (err) {
+      console.warn('Audio playback error:', err);
       setIsPlayingAudio(false);
     }
   };
@@ -174,7 +229,7 @@ export default function ActivityDetailScreen() {
       <View style={[styles.headerOverlay, { paddingTop: 11 }]}>
         <View style={styles.topHeaderBar}>
           <TouchableOpacity onPress={() => router.back()} style={styles.headerBackBtn} accessibilityLabel="मागे जा">
-            <Ionicons name="chevron-back" size={24} color="#0f172a" />
+            <ChevronLeft size={24} color="#0f172a" />
           </TouchableOpacity>
 
           <Text style={styles.headerTitle}>नोंद तपशील</Text>
@@ -185,11 +240,11 @@ export default function ActivityDetailScreen() {
               onPress={handleStartEdit}
               accessibilityLabel="नोंद बदला"
             >
-              <Ionicons name="pencil-outline" size={20} color="#0f172a" />
+              <Pencil size={18} color="#0f172a" />
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.actionIconBtn} onPress={handleDelete} accessibilityLabel="नोंद हटवा">
-              <Ionicons name="trash-outline" size={20} color="#ef4444" />
+              <Trash2 size={18} color="#ef4444" />
             </TouchableOpacity>
           </View>
         </View>
@@ -211,16 +266,22 @@ export default function ActivityDetailScreen() {
         {/* 3. Crop Header Card */}
         <View style={styles.cropHeaderCard}>
           <View style={styles.cropIconCircle}>
-            <MaterialCommunityIcons name="sprout" size={24} color="#15803d" />
+            <Sprout size={24} color="#15803d" />
           </View>
           <View style={styles.cropHeaderTextCol}>
             <Text style={styles.cropTitleText}>{displayTitle}</Text>
             <View style={styles.cropMetaRow}>
-              <Ionicons name="calendar-outline" size={13} color="#64748b" />
+              <Calendar size={13} color="#64748b" />
               <Text style={styles.cropMetaText}>{displayDate}</Text>
             </View>
+            {record?.isSynced ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                <Cloud size={13} color="#15803d" style={{ marginRight: 4 }} />
+                <Text style={{ fontSize: 11, color: '#15803d', fontWeight: '600' }}>क्लाउडवर सुरक्षित (Cloud Synced)</Text>
+              </View>
+            ) : null}
             <View style={styles.cropMetaRow}>
-              <Ionicons name="location-sharp" size={13} color="#15803d" />
+              <MapPin size={13} color="#15803d" />
               <Text style={styles.cropMetaText}>{displayLocation}</Text>
             </View>
           </View>
@@ -233,7 +294,7 @@ export default function ActivityDetailScreen() {
           {record?.cropName ? (
             <View style={styles.infoRow}>
               <View style={styles.infoRowLeft}>
-                <MaterialCommunityIcons name="sprout" size={16} color="#15803d" />
+                <Sprout size={16} color="#15803d" />
                 <Text style={styles.infoRowLabel}>पीक</Text>
               </View>
               <Text style={styles.infoRowValue}>{record.cropName}</Text>
@@ -243,7 +304,7 @@ export default function ActivityDetailScreen() {
           {record?.plotName ? (
             <View style={styles.infoRow}>
               <View style={styles.infoRowLeft}>
-                <MaterialCommunityIcons name="vector-square" size={16} color="#15803d" />
+                <MapPin size={16} color="#15803d" />
                 <Text style={styles.infoRowLabel}>शेत / प्लॉट</Text>
               </View>
               <Text style={styles.infoRowValue}>{record.plotName}</Text>
@@ -254,7 +315,7 @@ export default function ActivityDetailScreen() {
             record.structuredAnswers.map((ans, idx) => (
               <View key={idx} style={styles.infoRow}>
                 <View style={styles.infoRowLeft}>
-                  <MaterialCommunityIcons name="check-circle-outline" size={16} color="#15803d" />
+                  <CheckCircle2 size={16} color="#15803d" />
                   <Text style={styles.infoRowLabel}>{ans.question}</Text>
                 </View>
                 <Text style={styles.infoRowValue}>{ans.answer}</Text>
@@ -264,7 +325,7 @@ export default function ActivityDetailScreen() {
             <>
               <View style={styles.infoRow}>
                 <View style={styles.infoRowLeft}>
-                  <MaterialCommunityIcons name="sprout" size={16} color="#64748b" />
+                  <Sprout size={16} color="#64748b" />
                   <Text style={styles.infoRowLabel}>जातीचे नाव</Text>
                 </View>
                 <Text style={styles.infoRowValue}>अभिलाष</Text>
@@ -272,7 +333,7 @@ export default function ActivityDetailScreen() {
 
               <View style={styles.infoRow}>
                 <View style={styles.infoRowLeft}>
-                  <MaterialCommunityIcons name="vector-square" size={16} color="#64748b" />
+                  <MapPin size={16} color="#64748b" />
                   <Text style={styles.infoRowLabel}>क्षेत्र</Text>
                 </View>
                 <Text style={styles.infoRowValue}>0.5 एकर</Text>
@@ -280,7 +341,7 @@ export default function ActivityDetailScreen() {
 
               <View style={styles.infoRow}>
                 <View style={styles.infoRowLeft}>
-                  <Ionicons name="people-outline" size={16} color="#64748b" />
+                  <Users size={16} color="#64748b" />
                   <Text style={styles.infoRowLabel}>मजूर संख्या</Text>
                 </View>
                 <Text style={styles.infoRowValue}>4</Text>
@@ -292,7 +353,7 @@ export default function ActivityDetailScreen() {
             record.expenses.map((exp) => (
               <View key={exp.id} style={styles.infoRow}>
                 <View style={styles.infoRowLeft}>
-                  <MaterialCommunityIcons name="currency-inr" size={16} color="#64748b" />
+                  <Wallet size={16} color="#64748b" />
                   <Text style={styles.infoRowLabel}>{exp.title}</Text>
                 </View>
                 <Text style={styles.infoRowValue}>₹ {exp.amount.toLocaleString('en-IN')}</Text>
@@ -303,7 +364,7 @@ export default function ActivityDetailScreen() {
           {/* एकूण खर्च Highlight Badge */}
           <View style={styles.totalCostHighlightRow}>
             <View style={styles.totalCostLeft}>
-              <Ionicons name="wallet-outline" size={18} color="#15803d" />
+              <Wallet size={18} color="#15803d" />
               <Text style={styles.totalCostLabel}>एकूण खर्च</Text>
             </View>
             <Text style={styles.totalCostValue}>₹ {displayTotal}</Text>
@@ -320,11 +381,11 @@ export default function ActivityDetailScreen() {
               style={styles.playBtnCircle}
               onPress={handleTogglePlayAudio}
             >
-              <Ionicons
-                name={isPlayingAudio ? 'pause' : 'play'}
-                size={16}
-                color="#ffffff"
-              />
+              {isPlayingAudio ? (
+                <Pause size={16} color="#ffffff" />
+              ) : (
+                <Play size={16} color="#ffffff" />
+              )}
             </TouchableOpacity>
 
             <View style={styles.waveformWrap}>
@@ -334,21 +395,32 @@ export default function ActivityDetailScreen() {
             <Text style={styles.audioTimerText}>00:04</Text>
           </View>
 
-          <Text style={styles.transcriptQuoteText}>"{displayTranscript}"</Text>
+          <Text style={styles.transcriptQuoteText}>&ldquo;{displayTranscript}&rdquo;</Text>
         </View>
+
+        {/* शेतकरी टिपा (Notes) */}
+        {record?.notes ? (
+          <View style={styles.sectionCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+              <FileText size={18} color="#15803d" style={{ marginRight: 6 }} />
+              <Text style={styles.sectionCardTitle}>शेतकरी टिपा (Notes)</Text>
+            </View>
+            <Text style={{ fontSize: 14, color: '#334155', lineHeight: 22 }}>{record.notes}</Text>
+          </View>
+        ) : null}
 
         {/* 6. ठिकाण (Location Map Card) */}
         <View style={styles.sectionCard}>
           <Text style={styles.sectionCardTitle}>ठिकाण</Text>
 
           <View style={styles.locAddressRow}>
-            <Ionicons name="location-sharp" size={16} color="#15803d" />
+            <MapPin size={16} color="#15803d" />
             <Text style={styles.locAddressText}>{displayLocation}</Text>
           </View>
 
           {record?.location?.latitude && record?.location?.longitude && (
             <View style={styles.coordsDetailBadge}>
-              <Ionicons name="navigate-circle" size={14} color="#15803d" />
+              <Navigation size={14} color="#15803d" />
               <Text style={styles.coordsDetailText}>
                 GPS: {record.location.latitude.toFixed(5)}° N, {record.location.longitude.toFixed(5)}° E
               </Text>
@@ -361,7 +433,7 @@ export default function ActivityDetailScreen() {
               style={styles.mapGraphicImg}
             />
             <View style={styles.mapPinDot}>
-              <Ionicons name="location" size={26} color="#ef4444" />
+              <MapPin size={26} color="#ef4444" />
             </View>
             <TouchableOpacity
               style={styles.viewMapPill}
@@ -380,7 +452,7 @@ export default function ActivityDetailScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>नोंद दुरुस्त करा</Text>
               <TouchableOpacity onPress={() => setShowEditModal(false)} accessibilityLabel="बंद करा">
-                <Ionicons name="close-circle" size={26} color="#64748b" />
+                <XCircle size={26} color="#64748b" />
               </TouchableOpacity>
             </View>
 
