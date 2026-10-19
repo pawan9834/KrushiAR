@@ -8,6 +8,7 @@ import {
   fetchActivitiesFromFirestore,
   fetchCropsFromFirestore,
   fetchFarmerProfileFromFirestore,
+  fetchPlantingQuestionFromFirestore,
   fetchPlotsFromFirestore,
   getCurrentUserId,
   saveActivityToFirestore,
@@ -16,9 +17,12 @@ import {
   savePlotToFirestore,
   setActiveUserId,
   syncAllDataFromFirestore,
+  uploadDiaryAudio,
   uploadDiaryPhoto,
   uploadFarmerAvatar,
 } from './firebaseDiary';
+
+export { fetchPlantingQuestionFromFirestore };
 
 export type ActivityType =
   | 'planting'
@@ -257,6 +261,34 @@ export async function savePermanentPhoto(tempUri: string): Promise<string> {
   }
 }
 
+// Audio Management: copies captured voice audio to app document storage so it is not lost
+export async function savePermanentAudio(tempUri: string): Promise<string> {
+  try {
+    if (!tempUri || tempUri.startsWith('http')) return tempUri;
+    const baseDir = FileSystem.documentDirectory;
+    if (!baseDir) return tempUri;
+
+    const audioDir = `${baseDir}diary_audio/`;
+    const dirInfo = await FileSystem.getInfoAsync(audioDir);
+    if (!dirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(audioDir, { intermediates: true });
+    }
+
+    const filename = `voice_${Date.now()}_${Math.floor(Math.random() * 10000)}.m4a`;
+    const destPath = `${audioDir}${filename}`;
+
+    await FileSystem.copyAsync({
+      from: tempUri,
+      to: destPath,
+    });
+
+    return destPath;
+  } catch (err) {
+    console.warn('Failed to persist audio locally, keeping original URI:', err);
+    return tempUri;
+  }
+}
+
 // Activity Record Queries & Mutations
 export async function getActivities(filter?: {
   cropId?: string;
@@ -317,10 +349,27 @@ export async function addActivity(
     }
   }
 
+  // Persist voice audio locally & upload to Firebase Storage if available
+  console.log('💾 addActivity - record.audioUri received:', record.audioUri);
+  let finalAudioUri = record.audioUri;
+  if (finalAudioUri && !finalAudioUri.startsWith('http')) {
+    finalAudioUri = await savePermanentAudio(finalAudioUri);
+  }
+
+  let cloudAudioUri = finalAudioUri;
+  if (finalAudioUri) {
+    try {
+      cloudAudioUri = await uploadDiaryAudio(finalAudioUri, activityId);
+    } catch (err) {
+      console.warn('Firebase audio upload fallback:', err);
+    }
+  }
+
   const newRecord: ActivityRecord = {
     ...record,
     id: activityId,
     photoUri: cloudPhotoUri,
+    audioUri: cloudAudioUri,
     createdAt: now,
     updatedAt: now,
     isSynced: false,

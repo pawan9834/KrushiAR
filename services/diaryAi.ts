@@ -4,10 +4,12 @@ import { ActivityRecord, ActivityType, ExpenseItem, StructuredAnswer } from './d
 const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
 
 const GEMINI_MODELS = [
-  'gemini-2.5-flash',
-  'gemini-1.5-flash',
-  'gemini-flash-latest',
+  'gemini-3.8-flash',
   'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.7-flash',
+  'gemini-3.6-flash',
+  'gemini-flash-lite-latest',
 ];
 
 async function callGemini(prompt: string, inlineData?: { mime_type: string; data: string }): Promise<string> {
@@ -116,9 +118,9 @@ YOUR MISSION:
 4. If essential details are still missing, formulate the SINGLE NEXT CLEAR, POLITE QUESTION to ask the farmer.
    Follow these guided flows:
    - If Planting:
-     Question 1: कोणत्या जातीची लागवड केली? (variety)
-     Question 2: किती क्षेत्रात किंवा किती झाडे/रोपे लावली? (area/seedlings)
-     Question 3: मजुरी आणि इतर साहित्याचा खर्च किती झाला? (labour & expenses)
+     Question 1: तुम्ही कोणते रोप किंवा पीक लावत आहात? / Which plant are you planting? (plant_name)
+     Question 2: कोणती जात लावली? / Which variety? (variety)
+     Question 3: किती एकर क्षेत्रात लागवड केली? / How many acres? (acres)
    - If Fertilizer:
      Question 1: कोणते खत वापरले आणि किती प्रमाण दिले? (fertilizer name & quantity)
      Question 2: खताचा व मजुरीचा एकूण खर्च किती झाला? (expenses)
@@ -513,4 +515,243 @@ Do not add pleasantries or commentary. Return ONLY the transcribed text string.`
       ? 'आज मैंने खेत में काम किया।'
       : 'Today I worked in the field.';
   }
+}
+
+/**
+ * 5. Parse Crop Name, Variety, and Area from Voice/Audio using Gemini
+ */
+export interface ParsedCropVoiceResult {
+  cropName: string;
+  variety: string;
+  area: string;
+  recognizedText: string;
+}
+
+export async function parseCropDetailsFromAudio(params: {
+  base64Audio?: string;
+  mimeType?: string;
+  transcript?: string;
+  language: 'mr' | 'hi' | 'en';
+  currentField?: 'crop' | 'variety' | 'area';
+  existingCropName?: string;
+  existingVariety?: string;
+  existingArea?: string;
+}): Promise<ParsedCropVoiceResult> {
+  const {
+    base64Audio,
+    mimeType = 'audio/m4a',
+    transcript,
+    language,
+    currentField = 'crop',
+    existingCropName = '',
+    existingVariety = '',
+    existingArea = '',
+  } = params;
+
+  const langPrompt =
+    language === 'mr'
+      ? 'The crop name, variety, and recognized text must be returned in Marathi (मराठी).'
+      : language === 'hi'
+      ? 'The crop name, variety, and recognized text must be returned in Hindi (हिंदी).'
+      : 'Return crop name and variety in English.';
+
+  const fieldInstructions =
+    currentField === 'variety'
+      ? `THE FARMER WAS SPECIFICALLY ASKED: "कोणती जात लावली? / Which variety did you plant?".
+Known Crop Name: "${existingCropName || 'Crop'}".
+Extract the seed or crop variety (e.g., G-9, अभिनव, JS-335, RCH-659, पंचगंगा लाल, लोकवन, दिग्विजय, संकरित, सुधारित, गावरान, इ.).
+Keep cropName as "${existingCropName || 'Crop'}" unless the farmer changed the crop.`
+      : currentField === 'area'
+      ? `THE FARMER WAS SPECIFICALLY ASKED: "किती एकर क्षेत्रात लागवड केली? / How many acres?".
+Known Crop: "${existingCropName || 'Crop'}", Known Variety: "${existingVariety || 'Standard'}".
+Extract the farm area in acres as a decimal string (e.g. "2.0", "1.5", "2.5", "0.5", "1.0", "3.0", "5.0").
+Convert words: "दीड" -> "1.5", "अडीच" -> "2.5", "दोन" -> "2.0", "अर्धा" -> "0.5", "तीन" -> "3.0", "एक" -> "1.0".
+Keep cropName as "${existingCropName || 'Crop'}" and variety as "${existingVariety || 'Standard'}".`
+      : `THE FARMER WAS ASKED: "तुम्ही कोणते रोप किंवा पीक लावत आहात? / Which plant or crop are you planting?".
+Extract the primary cropName (e.g., केळी, टोमॅटो, कापूस, सोयाबीन, कांदा, मका, गहू, हरभरा, ऊस, डाळिंब, इ.).
+If they also happened to mention the variety or area in the same response, extract them as well.`;
+
+  const prompt = `You are an expert AI Farming Assistant for Indian agriculture.
+The farmer is speaking into the microphone to add a new crop to their farm record.
+${fieldInstructions}
+${transcript ? `FARMER SPOKE: "${transcript}"` : 'Listen carefully to the farmer speaking in the audio.'}
+
+${langPrompt}
+
+Return ONLY valid JSON without codeblocks or extra text:
+{
+  "cropName": "${existingCropName || 'टोमॅटो'}",
+  "variety": "${existingVariety || 'अभिनव'}",
+  "area": "${existingArea || '1.0'}",
+  "recognizedText": "Spoken text recognized"
+}`;
+
+  if (base64Audio) {
+    try {
+      const raw = await callGemini(prompt, { mime_type: mimeType, data: base64Audio });
+      const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+      if (parsed.cropName || parsed.variety || parsed.area) {
+        return {
+          cropName: parsed.cropName || existingCropName || (language === 'mr' ? 'कांदा' : 'Onion'),
+          variety: parsed.variety || existingVariety || (language === 'mr' ? 'सुधारित' : 'Standard'),
+          area: parsed.area ? String(parsed.area) : existingArea || '1.0',
+          recognizedText: parsed.recognizedText || transcript || '',
+        };
+      }
+    } catch (err) {
+      console.warn('Gemini audio crop parsing error:', err);
+    }
+  } else if (transcript) {
+    try {
+      const raw = await callGemini(prompt);
+      const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+      if (parsed.cropName || parsed.variety || parsed.area) {
+        return {
+          cropName: parsed.cropName || existingCropName || (language === 'mr' ? 'कांदा' : 'Onion'),
+          variety: parsed.variety || existingVariety || (language === 'mr' ? 'सुधारित' : 'Standard'),
+          area: parsed.area ? String(parsed.area) : existingArea || '1.0',
+          recognizedText: parsed.recognizedText || transcript,
+        };
+      }
+    } catch (err) {
+      console.warn('Gemini transcript crop parsing error:', err);
+    }
+  }
+
+  // Resilient fallback parser
+  return localCropVoiceFallback(transcript || '', language, currentField, existingCropName, existingVariety, existingArea);
+}
+
+function localCropVoiceFallback(
+  text: string,
+  language: 'mr' | 'hi' | 'en',
+  currentField: 'crop' | 'variety' | 'area' = 'crop',
+  existingCropName = '',
+  existingVariety = '',
+  existingArea = ''
+): ParsedCropVoiceResult {
+  const lower = text.toLowerCase();
+  let cropName = existingCropName || (language === 'mr' ? 'सोयाबीन' : language === 'hi' ? 'सोयाबीन' : 'Soybean');
+  let variety = existingVariety || 'सुधारित';
+  let area = existingArea || '1.0';
+
+  if (currentField === 'variety') {
+    // If user is answering question 2 (variety)
+    if (text.trim()) {
+      variety = text.replace(/जात|व्हरायटी|variety/gi, '').trim() || text.trim();
+    }
+    return {
+      cropName,
+      variety,
+      area,
+      recognizedText: text || variety,
+    };
+  }
+
+  if (currentField === 'area') {
+    // If user is answering question 3 (area)
+    if (lower.includes('दीड') || lower.includes('1.5') || lower.includes('१.५')) {
+      area = '1.5';
+    } else if (lower.includes('अडीच') || lower.includes('2.5') || lower.includes('२.५')) {
+      area = '2.5';
+    } else if (lower.includes('अर्धा') || lower.includes('0.5') || lower.includes('०.५')) {
+      area = '0.5';
+    } else if (lower.includes('दोन') || lower.includes('2') || lower.includes('२')) {
+      area = '2.0';
+    } else if (lower.includes('तीन') || lower.includes('3') || lower.includes('३')) {
+      area = '3.0';
+    } else if (lower.includes('चार') || lower.includes('4') || lower.includes('४')) {
+      area = '4.0';
+    } else if (lower.includes('पाच') || lower.includes('5') || lower.includes('५')) {
+      area = '5.0';
+    } else if (lower.includes('एक') || lower.includes('1') || lower.includes('१')) {
+      area = '1.0';
+    }
+    return {
+      cropName,
+      variety,
+      area,
+      recognizedText: text || `${area} एकर`,
+    };
+  }
+
+  // Question 1 (Crop extraction)
+  if (lower.includes('केळी') || lower.includes('केला') || lower.includes('banana')) {
+    cropName = language === 'mr' ? 'केळी' : language === 'hi' ? 'केला' : 'Banana';
+    variety = 'G-9 (ग्रँड नैन)';
+  } else if (lower.includes('टोमॅटो') || lower.includes('टमाटर') || lower.includes('tomato')) {
+    cropName = language === 'mr' ? 'टोमॅटो' : language === 'hi' ? 'टमाटर' : 'Tomato';
+    variety = 'अभिनव';
+  } else if (lower.includes('कापूस') || lower.includes('कपास') || lower.includes('cotton')) {
+    cropName = language === 'mr' ? 'कापूस' : language === 'hi' ? 'कपास' : 'Cotton';
+    variety = 'RCH-659';
+  } else if (lower.includes('कांदा') || lower.includes('प्याज') || lower.includes('onion')) {
+    cropName = language === 'mr' ? 'कांदा' : language === 'hi' ? 'प्याज' : 'Onion';
+    variety = 'पंचगंगा लाल';
+  } else if (lower.includes('मका') || lower.includes('मक्का') || lower.includes('maize') || lower.includes('corn')) {
+    cropName = language === 'mr' ? 'मका' : language === 'hi' ? 'मक्का' : 'Maize';
+    variety = 'पायोनियर';
+  } else if (lower.includes('गहू') || lower.includes('गेहूं') || lower.includes('wheat')) {
+    cropName = language === 'mr' ? 'गहू' : language === 'hi' ? 'गेहूं' : 'Wheat';
+    variety = 'लोकवन';
+  } else if (lower.includes('हरभरा') || lower.includes('चना') || lower.includes('gram')) {
+    cropName = language === 'mr' ? 'हरभरा' : language === 'hi' ? 'चना' : 'Gram';
+    variety = 'दिग्विजय';
+  } else if (lower.includes('ऊस') || lower.includes('गन्ना') || lower.includes('sugar')) {
+    cropName = language === 'mr' ? 'ऊस' : language === 'hi' ? 'गन्ना' : 'Sugarcane';
+    variety = 'Co-86032';
+  } else if (lower.includes('मिरची') || lower.includes('मिर्च') || lower.includes('chilli') || lower.includes('chili')) {
+    cropName = language === 'mr' ? 'मिरची' : language === 'hi' ? 'मिर्च' : 'Chilli';
+    variety = 'ज्वाला / सितारा';
+  } else if (lower.includes('वांगी') || lower.includes('बैंगन') || lower.includes('brinjal') || lower.includes('eggplant')) {
+    cropName = language === 'mr' ? 'वांगी' : language === 'hi' ? 'बैंगन' : 'Brinjal';
+    variety = 'मांजरी गोटा';
+  } else if (lower.includes('डाळिंब') || lower.includes('अनार') || lower.includes('pomegranate')) {
+    cropName = language === 'mr' ? 'डाळिंब' : language === 'hi' ? 'अनार' : 'Pomegranate';
+    variety = 'भगवा';
+  } else if (lower.includes('द्राक्षे') || lower.includes('अंगूर') || lower.includes('grape')) {
+    cropName = language === 'mr' ? 'द्राक्षे' : language === 'hi' ? 'अंगूर' : 'Grapes';
+    variety = 'थॉमसन सीडलेस';
+  } else if (lower.includes('पपई') || lower.includes('पपीता') || lower.includes('papaya')) {
+    cropName = language === 'mr' ? 'पपई' : language === 'hi' ? 'पपीता' : 'Papaya';
+    variety = 'रेड लेडी ७८६';
+  } else if (lower.includes('आले') || lower.includes('अद्रक') || lower.includes('अदरक') || lower.includes('ginger')) {
+    cropName = language === 'mr' ? 'आले' : language === 'hi' ? 'अदरक' : 'Ginger';
+    variety = 'वरदा';
+  } else if (lower.includes('हळद') || lower.includes('हल्दी') || lower.includes('turmeric')) {
+    cropName = language === 'mr' ? 'हळद' : language === 'hi' ? 'हल्दी' : 'Turmeric';
+    variety = 'सेलम';
+  } else if (lower.includes('लसूण') || lower.includes('लहसुन') || lower.includes('garlic')) {
+    cropName = language === 'mr' ? 'लसूण' : language === 'hi' ? 'लहसुन' : 'Garlic';
+    variety = 'यमुना सफेद';
+  } else if (lower.includes('भुईमूग') || lower.includes('मूंगफली') || lower.includes('groundnut')) {
+    cropName = language === 'mr' ? 'भुईमूग' : language === 'hi' ? 'मूंगफली' : 'Groundnut';
+    variety = 'टीएजी २४';
+  }
+
+  // Detect Area
+  if (lower.includes('दीड') || lower.includes('1.5') || lower.includes('१.५')) {
+    area = '1.5';
+  } else if (lower.includes('अडीच') || lower.includes('2.5') || lower.includes('२.५')) {
+    area = '2.5';
+  } else if (lower.includes('अर्धा') || lower.includes('0.5') || lower.includes('०.५')) {
+    area = '0.5';
+  } else if (lower.includes('दोन') || lower.includes('2') || lower.includes('२')) {
+    area = '2.0';
+  } else if (lower.includes('तीन') || lower.includes('3') || lower.includes('३')) {
+    area = '3.0';
+  } else if (lower.includes('चार') || lower.includes('4') || lower.includes('४')) {
+    area = '4.0';
+  } else if (lower.includes('पाच') || lower.includes('5') || lower.includes('५')) {
+    area = '5.0';
+  }
+
+  return {
+    cropName,
+    variety,
+    area,
+    recognizedText: text || `${area} एकर ${cropName} (${variety})`,
+  };
 }

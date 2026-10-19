@@ -1,6 +1,6 @@
 // app/activity-detail.tsx
 // Activity Detail Screen - Screen 5 matching Reference UI
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -41,6 +41,7 @@ import {
   updateActivity,
 } from '@/services/diaryStorage';
 import * as Speech from 'expo-speech';
+import { createAudioPlayer, AudioPlayer } from 'expo-audio';
 
 export default function ActivityDetailScreen() {
   const insets = useSafeAreaInsets();
@@ -50,6 +51,7 @@ export default function ActivityDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [record, setRecord] = useState<ActivityRecord | null>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const audioPlayerRef = useRef<AudioPlayer | null>(null);
 
   // Edit Modal State
   const [showEditModal, setShowEditModal] = useState(false);
@@ -74,10 +76,18 @@ export default function ActivityDetailScreen() {
   };
 
   useEffect(() => {
-    loadRecord();
+    const timer = setTimeout(() => {
+      loadRecord();
+    }, 0);
     return () => {
+      clearTimeout(timer);
       try {
         if (Speech) Speech.stop();
+        if (audioPlayerRef.current) {
+          audioPlayerRef.current.pause();
+          audioPlayerRef.current.remove();
+          audioPlayerRef.current = null;
+        }
       } catch {}
     };
   }, [id]);
@@ -109,23 +119,58 @@ export default function ActivityDetailScreen() {
   };
 
   const handleTogglePlayAudio = () => {
-    if (!Speech) return;
     try {
       if (isPlayingAudio) {
-        Speech.stop();
+        if (Speech) Speech.stop();
+        if (audioPlayerRef.current) {
+          audioPlayerRef.current.pause();
+          audioPlayerRef.current.remove();
+          audioPlayerRef.current = null;
+        }
         setIsPlayingAudio(false);
-      } else {
+        return;
+      }
+
+      if (Speech) Speech.stop();
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
+        audioPlayerRef.current.remove();
+        audioPlayerRef.current = null;
+      }
+
+      // If farmer's recorded voice exists, play the recorded audio
+      if (record?.audioUri) {
+        console.log('▶️ Playing farmer voice recording in detail screen:', record.audioUri);
         setIsPlayingAudio(true);
-        const transcriptText = record?.voiceTranscript || 'आज मी टोमॅटोची लागवड केली.';
+        const player = createAudioPlayer(record.audioUri);
+        audioPlayerRef.current = player;
+        player.addListener('playbackStatusUpdate', (status) => {
+          if (status.didJustFinish) {
+            console.log('⏹️ Voice recording playback finished in detail.');
+            setIsPlayingAudio(false);
+            player.remove();
+            audioPlayerRef.current = null;
+          }
+        });
+        player.play();
+        return;
+      }
+
+      // Fallback to TTS if no recorded voice is attached
+      if (Speech) {
+        setIsPlayingAudio(true);
+        const transcriptText = record?.voiceTranscript || record?.activityTitle || 'नोंद';
+        const speechLang = language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-IN';
         Speech.speak(transcriptText, {
-          language: 'mr-IN',
+          language: speechLang,
           rate: 0.88,
           onDone: () => setIsPlayingAudio(false),
           onStopped: () => setIsPlayingAudio(false),
           onError: () => setIsPlayingAudio(false),
         });
       }
-    } catch {
+    } catch (err) {
+      console.warn('Audio playback error:', err);
       setIsPlayingAudio(false);
     }
   };

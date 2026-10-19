@@ -188,6 +188,35 @@ export async function uploadDiaryPhoto(localUri: string, activityId: string): Pr
 }
 
 /**
+ * Uploads a local voice recording (.m4a) to Firebase Storage and returns the public download URL.
+ * Gracefully falls back to local file URI if offline or if storage is unreachable.
+ */
+export async function uploadDiaryAudio(localUri: string, activityId: string): Promise<string> {
+  if (!localUri || localUri.startsWith('http')) {
+    return localUri;
+  }
+
+  try {
+    const userId = getCurrentUserId();
+    const storage = getStorage();
+    const cleanPath = localUri.startsWith('file://') ? localUri.replace('file://', '') : localUri;
+    const storageFileName = `farmers/${userId}/activities/${activityId}_${Date.now()}.m4a`;
+    const storageRef = ref(storage, storageFileName);
+
+    console.log('Uploading audio to Firebase Storage:', storageFileName);
+    await putFile(storageRef, cleanPath, {
+      contentType: 'audio/m4a',
+    });
+    const downloadUrl = await getDownloadURL(storageRef);
+    console.log('Firebase Storage audio upload successful. Download URL:', downloadUrl);
+    return downloadUrl;
+  } catch (err: any) {
+    console.warn('Firebase Storage audio upload warning (fallback to local audio):', err?.message || err);
+    return localUri;
+  }
+}
+
+/**
  * Uploads farmer avatar image to Firebase Storage
  */
 export async function uploadFarmerAvatar(localUri: string, userId: string): Promise<string> {
@@ -608,3 +637,96 @@ export async function syncAllDataFromFirestore(userId?: string): Promise<{
     };
   }
 }
+
+/**
+ * Fetches the planting crop question from Cloud Firestore (e.g. configured by Admin),
+ * with fallback to the standard natural question:
+ * "तुम्ही कोणते रोप किंवा पीक लावत आहात?" / "Which plant are you planting?"
+ */
+export async function fetchPlantingQuestionFromFirestore(
+  language: 'mr' | 'hi' | 'en' = 'mr',
+  questionIndex: number = 0
+): Promise<string> {
+  const fallbacksByQuestion: Record<number, Record<'mr' | 'hi' | 'en', string>> = {
+    0: {
+      mr: 'तुम्ही कोणते रोप किंवा पीक लावत आहात?',
+      hi: 'आप कौन सा पौधा या फसल लगा रहे हैं?',
+      en: 'Which plant or crop are you planting?',
+    },
+    1: {
+      mr: 'कोणती जात लावली?',
+      hi: 'कौन सी किस्म लगाई?',
+      en: 'Which variety did you plant?',
+    },
+    2: {
+      mr: 'किती एकर क्षेत्रात लागवड केली?',
+      hi: 'कितने एकड़ में रोपाई या बुवाई की?',
+      en: 'How many acres did you plant?',
+    },
+  };
+
+  const defaultQuestion =
+    fallbacksByQuestion[questionIndex]?.[language] ||
+    fallbacksByQuestion[0][language];
+
+  try {
+    const firestore = getFirestore();
+
+    // 1. Check doc 'crop_questions/crop_planting' (from Admin WHICH_PLANT_QUESTION_DATASET)
+    try {
+      const plantingDoc = await getDoc(doc(collection(firestore, 'crop_questions'), 'crop_planting'));
+      if (plantingDoc.exists()) {
+        const data = plantingDoc.data() as any;
+        const qList = data?.activities?.planting?.questions;
+        if (Array.isArray(qList) && qList.length > questionIndex) {
+          const q = qList[questionIndex];
+          if (q && q[language]) return q[language];
+          if (q?.mr) return q.mr;
+        }
+        if (questionIndex === 0 && data?.question && data?.question[language]) {
+          return data.question[language];
+        }
+      }
+    } catch (e1) {
+      console.warn('Check crop_planting doc notice:', e1);
+    }
+
+    // 2. Query any active question dataset in 'crop_questions'
+    try {
+      const collSnap = await getDocs(collection(firestore, 'crop_questions'));
+      if (!collSnap.empty) {
+        for (const d of collSnap.docs) {
+          const data = d.data() as any;
+          const qList = data?.activities?.planting?.questions;
+          if (Array.isArray(qList) && qList.length > questionIndex) {
+            const q = qList[questionIndex];
+            if (q && q[language]) return q[language];
+            if (q?.mr) return q.mr;
+          }
+          if (questionIndex === 0 && data?.question && data?.question[language]) {
+            return data.question[language];
+          }
+        }
+      }
+    } catch (e2) {
+      console.warn('Query crop_questions notice:', e2);
+    }
+
+    // 3. Fallback check in 'questions/crop_planting'
+    try {
+      const altDoc = await getDoc(doc(collection(firestore, 'questions'), 'crop_planting'));
+      if (altDoc.exists()) {
+        const data = altDoc.data() as any;
+        if (questionIndex === 0 && data && data[language]) return data[language];
+        if (questionIndex === 0 && data?.question && data?.question[language]) return data.question[language];
+      }
+    } catch (e3) {
+      console.warn('Check questions doc notice:', e3);
+    }
+  } catch (err) {
+    console.warn('Firestore planting question fetch notice (using default):', err);
+  }
+
+  return defaultQuestion;
+}
+

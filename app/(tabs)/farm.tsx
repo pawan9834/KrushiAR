@@ -7,6 +7,7 @@ import {
   getExpenseSummary,
   addCrop,
   deleteCrop,
+  fetchPlantingQuestionFromFirestore,
   Crop,
   FarmPlot,
   FarmerProfile,
@@ -25,7 +26,6 @@ import {
   CheckSquare,
   Trash2,
   Lightbulb,
-  Calendar,
   Camera,
   Map,
   Package,
@@ -33,23 +33,33 @@ import {
   XCircle,
   Sparkles,
   Mountain,
+  Mic,
+  CheckCircle2,
 } from 'lucide-react-native';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
+  Keyboard,
+  KeyboardAvoidingView,
   Linking,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Speech from 'expo-speech';
+import { useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync } from 'expo-audio';
+import * as FileSystem from 'expo-file-system/legacy';
+import { parseCropDetailsFromAudio } from '@/services/diaryAi';
 
 export default function MyFarmScreen() {
   const insets = useSafeAreaInsets();
@@ -82,6 +92,331 @@ export default function MyFarmScreen() {
   const [newCropVariety, setNewCropVariety] = useState('');
   const [newCropArea, setNewCropArea] = useState('१.०');
 
+  // AI Voice Planting Prompt State
+  const [aiCropPromptState, setAiCropPromptState] = useState<'idle' | 'countdown' | 'speaking' | 'listening' | 'completed'>('idle');
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(0);
+  const [aiCountdown, setAiCountdown] = useState<number>(3);
+  const [aiQuestionPrompt, setAiQuestionPrompt] = useState<string>('');
+  const aiCountdownTimerRef = useRef<any>(null);
+  const aiCountdownIntervalRef = useRef<any>(null);
+  const isModalActiveRef = useRef<boolean>(false);
+  const activeQuestionIndexRef = useRef<number>(0);
+  const cropNameRef = useRef<string>('');
+  const cropVarietyRef = useRef<string>('');
+  const cropAreaRef = useRef<string>('१.०');
+
+  // Voice recording state for Add Crop
+  const [isRecordingCropVoice, setIsRecordingCropVoice] = useState(false);
+  const [isProcessingCropVoice, setIsProcessingCropVoice] = useState(false);
+  const [cropVoiceFeedback, setCropVoiceFeedback] = useState<string | null>(null);
+
+  const cropAudioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+
+  // 🎙️ Automatically start microphone recording for user to speak
+  const startAutoCropMic = async () => {
+    if (!isModalActiveRef.current) return;
+    setAiCropPromptState('listening');
+    try {
+      const perm = await requestRecordingPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert(
+          language === 'mr' ? 'मायक्रोफोन परवानगी आवश्यक' : language === 'hi' ? 'माइक्रोफोन अनुमति आवश्यक' : 'Microphone Permission Required',
+          language === 'mr'
+            ? 'कृपया बोलून माहिती भरण्यासाठी मायक्रोफोन परवानगी द्या.'
+            : 'Please allow microphone access to speak and fill crop details.'
+        );
+        return;
+      }
+
+      await cropAudioRecorder.prepareToRecordAsync();
+      cropAudioRecorder.record();
+      setIsRecordingCropVoice(true);
+      setCropVoiceFeedback(null);
+    } catch (err) {
+      console.warn('Auto start crop mic error, fallback:', err);
+      setIsRecordingCropVoice(true);
+      setCropVoiceFeedback(null);
+    }
+  };
+
+  // 🤖 Trigger AI Question after 3-second countdown, then auto-turn mic on
+  const triggerAiQuestion = async (questionIdx: number, spokenIntro?: string) => {
+    if (!isModalActiveRef.current) return;
+
+    if (aiCountdownTimerRef.current) clearTimeout(aiCountdownTimerRef.current);
+    if (aiCountdownIntervalRef.current) clearInterval(aiCountdownIntervalRef.current);
+    try {
+      if (Speech) Speech.stop();
+    } catch {}
+
+    activeQuestionIndexRef.current = questionIdx;
+    setActiveQuestionIndex(questionIdx);
+    setAiCropPromptState('countdown');
+    setAiCountdown(3);
+
+    // Speak quick confirmation of previous response if provided
+    if (spokenIntro && Speech) {
+      Speech.speak(spokenIntro, {
+        language: language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-IN',
+        rate: 0.95,
+      });
+    }
+
+    // Pre-fetch question from Firebase
+    let fetchedQuestion = '';
+    fetchPlantingQuestionFromFirestore(language, questionIdx)
+      .then((q) => {
+        fetchedQuestion = q;
+        if (isModalActiveRef.current) {
+          setAiQuestionPrompt(q);
+        }
+      })
+      .catch((e) => {
+        console.warn('Planting question fetch notice:', e);
+      });
+
+    // 3-second countdown interval (3.. 2.. 1..)
+    let secondsLeft = 3;
+    aiCountdownIntervalRef.current = setInterval(() => {
+      secondsLeft -= 1;
+      if (secondsLeft > 0) {
+        setAiCountdown(secondsLeft);
+      } else {
+        if (aiCountdownIntervalRef.current) clearInterval(aiCountdownIntervalRef.current);
+      }
+    }, 1000);
+
+    // After exactly 3 seconds, AI speaks the question from Firebase and turns mic on
+    aiCountdownTimerRef.current = setTimeout(async () => {
+      if (!isModalActiveRef.current) return;
+
+      const questionToAsk =
+        fetchedQuestion ||
+        (questionIdx === 0
+          ? (language === 'mr' ? 'तुम्ही कोणते रोप किंवा पीक लावत आहात?' : language === 'hi' ? 'आप कौन सा पौधा या फसल लगा रहे हैं?' : 'Which plant or crop are you planting?')
+          : questionIdx === 1
+          ? (language === 'mr' ? 'कोणती जात लावली?' : language === 'hi' ? 'कौन सी किस्म लगाई?' : 'Which variety did you plant?')
+          : (language === 'mr' ? 'किती एकर क्षेत्रात लागवड केली?' : language === 'hi' ? 'कितने एकड़ में रोपाई या बुवाई की?' : 'How many acres did you plant?'));
+
+      setAiQuestionPrompt(questionToAsk);
+      setAiCropPromptState('speaking');
+
+      const onSpeechEnd = () => {
+        if (!isModalActiveRef.current) return;
+        startAutoCropMic();
+      };
+
+      try {
+        const speechLang = language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-IN';
+        if (Speech) {
+          Speech.speak(questionToAsk, {
+            language: speechLang,
+            rate: 0.9,
+            pitch: 1.0,
+            onDone: onSpeechEnd,
+            onError: onSpeechEnd,
+          });
+        } else {
+          startAutoCropMic();
+        }
+      } catch (err) {
+        console.warn('Speech error, starting mic directly:', err);
+        startAutoCropMic();
+      }
+    }, 3000);
+  };
+
+  // 🤖 Triggered when user taps "+ Add Crop":
+  const handleOpenAddCropModal = async () => {
+    // 1. Clear any ongoing speech or timers
+    if (aiCountdownTimerRef.current) clearTimeout(aiCountdownTimerRef.current);
+    if (aiCountdownIntervalRef.current) clearInterval(aiCountdownIntervalRef.current);
+    try {
+      if (Speech) Speech.stop();
+    } catch {}
+
+    // 2. Reset crop fields
+    setNewCropName('');
+    setNewCropVariety('');
+    setNewCropArea('१.०');
+    cropNameRef.current = '';
+    cropVarietyRef.current = '';
+    cropAreaRef.current = '१.०';
+    setCropVoiceFeedback(null);
+    setIsRecordingCropVoice(false);
+    setIsProcessingCropVoice(false);
+
+    // 3. Initiate modal and start Question 1
+    setShowAddCropModal(true);
+    isModalActiveRef.current = true;
+    triggerAiQuestion(0);
+  };
+
+  // Close modal and cancel all timers/recordings safely
+  const handleCloseAddCropModal = () => {
+    isModalActiveRef.current = false;
+    if (aiCountdownTimerRef.current) clearTimeout(aiCountdownTimerRef.current);
+    if (aiCountdownIntervalRef.current) clearInterval(aiCountdownIntervalRef.current);
+    try {
+      if (Speech) Speech.stop();
+    } catch {}
+    if (isRecordingCropVoice) {
+      try {
+        cropAudioRecorder.stop();
+      } catch {}
+      setIsRecordingCropVoice(false);
+    }
+    setAiCropPromptState('idle');
+    setShowAddCropModal(false);
+    Keyboard.dismiss();
+  };
+
+  const handleToggleCropVoice = async () => {
+    // If during countdown or speaking, cancel timer and immediately start recording
+    if (aiCropPromptState === 'countdown' || aiCropPromptState === 'speaking') {
+      if (aiCountdownTimerRef.current) clearTimeout(aiCountdownTimerRef.current);
+      if (aiCountdownIntervalRef.current) clearInterval(aiCountdownIntervalRef.current);
+      try {
+        if (Speech) Speech.stop();
+      } catch {}
+      await startAutoCropMic();
+      return;
+    }
+
+    if (isRecordingCropVoice) {
+      // Stop recording
+      setIsRecordingCropVoice(false);
+      setIsProcessingCropVoice(true);
+      try {
+        await cropAudioRecorder.stop();
+        const uri = cropAudioRecorder.uri;
+        let base64Audio: string | undefined = undefined;
+        if (uri) {
+          base64Audio = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        }
+
+        const currentField = activeQuestionIndexRef.current === 0 ? 'crop' : activeQuestionIndexRef.current === 1 ? 'variety' : 'area';
+        const result = await parseCropDetailsFromAudio({
+          base64Audio,
+          language,
+          currentField,
+          existingCropName: cropNameRef.current,
+          existingVariety: cropVarietyRef.current,
+          existingArea: cropAreaRef.current,
+        });
+
+        if (activeQuestionIndexRef.current === 0) {
+          // Question 1 answered: Crop name
+          const detectedCrop = result.cropName || (language === 'mr' ? 'कांदा' : 'Onion');
+          setNewCropName(detectedCrop);
+          cropNameRef.current = detectedCrop;
+
+          // Check if user answered all 3 in one single sentence
+          const hasCustomVariety = result.variety && result.variety !== 'सुधारित' && result.variety !== 'Standard';
+          const hasCustomArea = result.area && result.area !== '1.0' && result.area !== '१.०';
+
+          if (hasCustomVariety && hasCustomArea) {
+            setNewCropVariety(result.variety);
+            setNewCropArea(result.area);
+            cropVarietyRef.current = result.variety;
+            cropAreaRef.current = result.area;
+            setCropVoiceFeedback(result.recognizedText || `${result.area} एकर ${detectedCrop} (${result.variety})`);
+            setAiCropPromptState('completed');
+
+            if (Speech) {
+              const spokenMsg =
+                language === 'mr'
+                  ? `${detectedCrop}, जात ${result.variety}, क्षेत्र ${result.area} एकर माहिती भरली आहे.`
+                  : language === 'hi'
+                  ? `${detectedCrop}, किस्म ${result.variety}, क्षेत्रफल ${result.area} एकड़ दर्ज हुआ।`
+                  : `Added ${detectedCrop}, variety ${result.variety}, area ${result.area} acres.`;
+              Speech.speak(spokenMsg, {
+                language: language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-IN',
+                rate: 0.9,
+              });
+            }
+          } else {
+            // User gave ans of 1st question -> after 3 sec ask next question (Question 2: Variety)!
+            setCropVoiceFeedback(language === 'mr' ? `✅ पीक: ${detectedCrop}` : `✅ Crop: ${detectedCrop}`);
+            const introMsg = language === 'mr' ? `${detectedCrop} नोंदवले.` : `${detectedCrop} noted.`;
+            triggerAiQuestion(1, introMsg);
+          }
+        } else if (activeQuestionIndexRef.current === 1) {
+          // Question 2 answered: Variety
+          const detectedVariety = result.variety || (language === 'mr' ? 'सुधारित' : 'Standard');
+          setNewCropVariety(detectedVariety);
+          cropVarietyRef.current = detectedVariety;
+          setCropVoiceFeedback(language === 'mr' ? `✅ जात: ${detectedVariety}` : `✅ Variety: ${detectedVariety}`);
+
+          // After 3 sec ask next question (Question 3: Area)!
+          const introMsg = language === 'mr' ? `जात ${detectedVariety} नोंदवली.` : `Variety ${detectedVariety} noted.`;
+          triggerAiQuestion(2, introMsg);
+        } else {
+          // Question 3 answered: Area
+          const detectedArea = result.area || '1.0';
+          setNewCropArea(detectedArea);
+          cropAreaRef.current = detectedArea;
+          setCropVoiceFeedback(language === 'mr' ? `✅ क्षेत्र: ${detectedArea} एकर` : `✅ Area: ${detectedArea} Acres`);
+          setAiCropPromptState('completed');
+
+          if (Speech) {
+            const spokenMsg =
+              language === 'mr'
+                ? `${cropNameRef.current || result.cropName}, जात ${cropVarietyRef.current || 'सुधारित'}, क्षेत्र ${detectedArea} एकर माहिती पूर्ण भरली आहे.`
+                : language === 'hi'
+                ? `${cropNameRef.current || result.cropName}, किस्म ${cropVarietyRef.current || 'सुधारित'}, क्षेत्रफल ${detectedArea} एकड़ दर्ज हुआ।`
+                : `${cropNameRef.current || result.cropName}, variety ${cropVarietyRef.current || 'Standard'}, area ${detectedArea} acres completed.`;
+            Speech.speak(spokenMsg, {
+              language: language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-IN',
+              rate: 0.9,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Crop voice recording stop error:', err);
+      } finally {
+        setIsProcessingCropVoice(false);
+      }
+    } else {
+      // Start recording manually
+      await startAutoCropMic();
+    }
+  };
+
+  const handleApplyVoiceSample = async (sampleText: string) => {
+    if (aiCountdownTimerRef.current) clearTimeout(aiCountdownTimerRef.current);
+    if (aiCountdownIntervalRef.current) clearInterval(aiCountdownIntervalRef.current);
+    try {
+      if (Speech) Speech.stop();
+    } catch {}
+
+    setIsProcessingCropVoice(true);
+    try {
+      const result = await parseCropDetailsFromAudio({
+        transcript: sampleText,
+        language,
+      });
+      setNewCropName(result.cropName);
+      setNewCropVariety(result.variety);
+      setNewCropArea(result.area);
+      setCropVoiceFeedback(result.recognizedText || sampleText);
+      setAiCropPromptState('completed');
+
+      if (Speech) {
+        Speech.speak(
+          language === 'mr'
+            ? `${result.cropName}, जात ${result.variety}, ${result.area} एकर माहिती भरली आहे.`
+            : `${result.cropName}, variety ${result.variety}, ${result.area} acres filled.`,
+          { language: language === 'mr' ? 'mr-IN' : 'en-IN', rate: 0.9 }
+        );
+      }
+    } finally {
+      setIsProcessingCropVoice(false);
+    }
+  };
+
   const loadFarmData = useCallback(async () => {
     try {
       const [cropList, plotList, profile, expenses] = await Promise.all([
@@ -108,9 +443,12 @@ export default function MyFarmScreen() {
     }, [loadFarmData])
   );
 
-  // Cleanup speech on unmount
+  // Cleanup speech and AI timers on unmount
   useEffect(() => {
     return () => {
+      isModalActiveRef.current = false;
+      if (aiCountdownTimerRef.current) clearTimeout(aiCountdownTimerRef.current);
+      if (aiCountdownIntervalRef.current) clearInterval(aiCountdownIntervalRef.current);
       try {
         if (Speech) Speech.stop();
       } catch { }
@@ -220,7 +558,7 @@ export default function MyFarmScreen() {
       setNewCropName('');
       setNewCropVariety('');
       setNewCropArea('१.०');
-      setShowAddCropModal(false);
+      handleCloseAddCropModal();
       await loadFarmData();
     } catch (err) {
       console.error('Failed to add crop:', err);
@@ -443,7 +781,7 @@ export default function MyFarmScreen() {
 
           <TouchableOpacity
             style={styles.addCropQuickBtn}
-            onPress={() => setShowAddCropModal(true)}
+            onPress={handleOpenAddCropModal}
             activeOpacity={0.8}>
             <PlusCircle size={18} color="#ffffff" />
             <Text style={styles.addCropQuickText}>
@@ -528,7 +866,7 @@ export default function MyFarmScreen() {
               </Text>
               <TouchableOpacity
                 style={styles.emptyCardBtn}
-                onPress={() => setShowAddCropModal(true)}
+                onPress={handleOpenAddCropModal}
                 activeOpacity={0.8}>
                 <PlusCircle size={18} color="#ffffff" />
                 <Text style={styles.emptyCardBtnText}>
@@ -699,7 +1037,7 @@ export default function MyFarmScreen() {
               </Text>
               <TouchableOpacity
                 style={styles.emptyCardBtn}
-                onPress={() => setShowAddCropModal(true)}
+                onPress={handleOpenAddCropModal}
                 activeOpacity={0.8}>
                 <PlusCircle size={18} color="#ffffff" />
                 <Text style={styles.emptyCardBtnText}>
@@ -979,124 +1317,407 @@ export default function MyFarmScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Add Crop Modal */}
+      {/* Add Crop Modal (Bottom Sheet with Keyboard Avoiding) */}
       <Modal
         visible={showAddCropModal}
         animationType="slide"
         transparent={true}
-        onRequestClose={() => setShowAddCropModal(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <Text style={{ fontSize: 18, fontWeight: '800', color: '#1e293b' }}>
-                {language === 'mr' ? 'नवीन पीक जोडा' : language === 'hi' ? 'नई फसल जोड़ें' : 'Add New Crop'}
-              </Text>
-              <TouchableOpacity onPress={() => setShowAddCropModal(false)}>
-                <XCircle size={24} color="#94a3b8" />
-              </TouchableOpacity>
-            </View>
+        statusBarTranslucent={true}
+        onRequestClose={handleCloseAddCropModal}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+          style={{ flex: 1 }}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+            <TouchableWithoutFeedback onPress={handleCloseAddCropModal}>
+              <View style={{ flex: 1 }} />
+            </TouchableWithoutFeedback>
 
-            {/* Quick Crop Selector Chips */}
-            <View style={{ marginBottom: 12 }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b', marginBottom: 6 }}>
-                {language === 'mr' ? 'लोकप्रिय पिके (टॅप करा):' : language === 'hi' ? 'लोकप्रिय फसलें चुनें:' : 'Quick Select Crop:'}
-              </Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
-                {[
-                  { name: language === 'mr' ? 'सोयाबीन' : language === 'hi' ? 'सोयाबीन' : 'Soybean', variety: 'JS-335' },
-                  { name: language === 'mr' ? 'कापूस' : language === 'hi' ? 'कपास' : 'Cotton', variety: 'RCH-659' },
-                  { name: language === 'mr' ? 'कांदा' : language === 'hi' ? 'प्याज' : 'Onion', variety: 'पंचगंगा लाल' },
-                  { name: language === 'mr' ? 'टोमॅटो' : language === 'hi' ? 'टमाटर' : 'Tomato', variety: 'अभिनव' },
-                  { name: language === 'mr' ? 'मका' : language === 'hi' ? 'मक्का' : 'Maize', variety: 'पायोनियर' },
-                  { name: language === 'mr' ? 'गहू' : language === 'hi' ? 'गेहूं' : 'Wheat', variety: 'लोकवन' },
-                  { name: language === 'mr' ? 'हरभरा' : language === 'hi' ? 'चना' : 'Gram', variety: 'दिग्विजय' },
-                ].map((item, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    onPress={() => {
-                      setNewCropName(item.name);
-                      setNewCropVariety(item.variety);
-                    }}
-                    style={{
-                      backgroundColor: newCropName === item.name ? '#dcfce7' : '#f1f5f9',
-                      borderWidth: 1,
-                      borderColor: newCropName === item.name ? '#15803d' : '#cbd5e1',
-                      borderRadius: 16,
-                      paddingHorizontal: 12,
-                      paddingVertical: 6,
-                    }}>
-                    <Text
-                      style={{
-                        fontSize: 13,
-                        fontWeight: '700',
-                        color: newCropName === item.name ? '#15803d' : '#334155',
-                      }}>
-                      {item.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
+            <View
+              style={{
+                backgroundColor: '#ffffff',
+                borderTopLeftRadius: 24,
+                borderTopRightRadius: 24,
+                paddingHorizontal: 20,
+                paddingTop: 12,
+                paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+                maxHeight: '85%',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: -3 },
+                shadowOpacity: 0.15,
+                shadowRadius: 8,
+                elevation: 10,
+              }}>
+              {/* Bottom Sheet Handle */}
+              <View
+                style={{
+                  width: 40,
+                  height: 4,
+                  backgroundColor: '#cbd5e1',
+                  borderRadius: 2,
+                  alignSelf: 'center',
+                  marginBottom: 12,
+                }}
+              />
 
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#475569', marginBottom: 4 }}>
-              {language === 'mr' ? 'पिकाचे नाव' : language === 'hi' ? 'फसल का नाम' : 'Crop Name'}
-            </Text>
-            <TextInput
-              style={{ backgroundColor: '#f1f5f9', borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 12 }}
-              placeholder={language === 'mr' ? 'उदा. टोमॅटो, कापूस, सोयाबीन' : 'e.g. Tomato, Cotton'}
-              value={newCropName}
-              onChangeText={setNewCropName}
-            />
-
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#475569', marginBottom: 4 }}>
-              {language === 'mr' ? 'पिकाची जात / व्हरायटी' : language === 'hi' ? 'किस्म / वैरायटी' : 'Variety'}
-            </Text>
-            <TextInput
-              style={{ backgroundColor: '#f1f5f9', borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 12 }}
-              placeholder={language === 'mr' ? 'उदा. सुधारित / अभिनव' : 'e.g. Hybrid / Standard'}
-              value={newCropVariety}
-              onChangeText={setNewCropVariety}
-            />
-
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#475569', marginBottom: 4 }}>
-              {language === 'mr' ? 'क्षेत्र (एकर)' : language === 'hi' ? 'क्षेत्रफल (एकड़)' : 'Area (Acres)'}
-            </Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-              {['0.5', '1.0', '1.5', '2.0', '3.0', '5.0'].map((acres) => (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 12,
+                }}>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: '#1e293b' }}>
+                  {language === 'mr' ? 'नवीन पीक जोडा' : language === 'hi' ? 'नई फसल जोड़ें' : 'Add New Crop'}
+                </Text>
                 <TouchableOpacity
-                  key={acres}
-                  onPress={() => setNewCropArea(acres)}
+                  onPress={handleCloseAddCropModal}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                  <XCircle size={24} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{ paddingBottom: 16 }}>
+                {/* 🎙️ Primary AI Speak to Fill Card with 3s Countdown & Firebase Question */}
+                <View
                   style={{
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                    borderRadius: 12,
-                    backgroundColor: newCropArea === acres ? '#dcfce7' : '#f1f5f9',
-                    borderWidth: 1.5,
-                    borderColor: newCropArea === acres ? '#15803d' : '#cbd5e1',
+                    backgroundColor: isRecordingCropVoice
+                      ? '#fef2f2'
+                      : aiCropPromptState === 'countdown'
+                      ? '#fefce8'
+                      : aiCropPromptState === 'speaking'
+                      ? '#ecfdf5'
+                      : '#f0fdf4',
+                    borderWidth: 2,
+                    borderColor: isRecordingCropVoice
+                      ? '#ef4444'
+                      : aiCropPromptState === 'countdown'
+                      ? '#eab308'
+                      : aiCropPromptState === 'speaking'
+                      ? '#10b981'
+                      : '#86efac',
+                    borderRadius: 16,
+                    padding: 14,
+                    marginBottom: 16,
+                    shadowColor: isRecordingCropVoice ? '#ef4444' : '#15803d',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 4,
+                    elevation: 2,
                   }}>
-                  <Text style={{ fontSize: 12, fontWeight: '800', color: newCropArea === acres ? '#15803d' : '#334155' }}>
-                    {acres} {language === 'mr' ? 'एकर' : 'Acre'}
+                  {/* 3-Step Question Pills */}
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 6,
+                      marginBottom: 12,
+                      paddingBottom: 10,
+                      borderBottomWidth: 1,
+                      borderBottomColor: '#dcfce7',
+                    }}>
+                    {[
+                      { idx: 0, label: language === 'mr' ? '१. रोप / पीक' : '1. Plant/Crop', val: newCropName },
+                      { idx: 1, label: language === 'mr' ? '२. जात' : '2. Variety', val: newCropVariety },
+                      { idx: 2, label: language === 'mr' ? '३. क्षेत्र (एकर)' : '3. Acres', val: aiCropPromptState === 'completed' || activeQuestionIndex === 2 ? newCropArea : '' },
+                    ].map((step) => {
+                      const isCurrent = activeQuestionIndex === step.idx && aiCropPromptState !== 'completed';
+                      const isDone = !!step.val && (step.idx < activeQuestionIndex || aiCropPromptState === 'completed');
+                      return (
+                        <TouchableOpacity
+                          key={step.idx}
+                          activeOpacity={0.8}
+                          onPress={() => triggerAiQuestion(step.idx)}
+                          style={{
+                            flex: 1,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 4,
+                            paddingVertical: 5,
+                            paddingHorizontal: 4,
+                            borderRadius: 10,
+                            backgroundColor: isCurrent ? '#dcfce7' : isDone ? '#f0fdf4' : '#ffffff',
+                            borderWidth: 1.5,
+                            borderColor: isCurrent ? '#15803d' : isDone ? '#86efac' : '#cbd5e1',
+                          }}>
+                          {isDone ? (
+                            <CheckCircle2 size={13} color="#15803d" />
+                          ) : (
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: isCurrent ? '#15803d' : '#94a3b8' }}>
+                              {step.idx + 1}
+                            </Text>
+                          )}
+                          <Text
+                            numberOfLines={1}
+                            style={{
+                              fontSize: 11.5,
+                              fontWeight: isCurrent ? '800' : '600',
+                              color: isCurrent ? '#15803d' : isDone ? '#166534' : '#64748b',
+                            }}>
+                            {step.val ? `${step.val}` : step.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <TouchableOpacity
+                      onPress={handleToggleCropVoice}
+                      disabled={isProcessingCropVoice}
+                      activeOpacity={0.8}
+                      style={{
+                        width: 52,
+                        height: 52,
+                        borderRadius: 26,
+                        backgroundColor: isRecordingCropVoice
+                          ? '#ef4444'
+                          : aiCropPromptState === 'countdown'
+                          ? '#ca8a04'
+                          : aiCropPromptState === 'speaking'
+                          ? '#059669'
+                          : '#15803d',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        shadowColor: isRecordingCropVoice ? '#ef4444' : '#15803d',
+                        shadowOffset: { width: 0, height: 3 },
+                        shadowOpacity: 0.35,
+                        shadowRadius: 5,
+                        elevation: 4,
+                      }}>
+                      {isProcessingCropVoice ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      ) : isRecordingCropVoice ? (
+                        <Square size={20} color="#ffffff" />
+                      ) : aiCropPromptState === 'countdown' ? (
+                        <Text style={{ fontSize: 22, fontWeight: '900', color: '#ffffff' }}>
+                          {aiCountdown}
+                        </Text>
+                      ) : aiCropPromptState === 'speaking' ? (
+                        <Volume2 size={24} color="#ffffff" />
+                      ) : (
+                        <Mic size={26} color="#ffffff" />
+                      )}
+                    </TouchableOpacity>
+
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{
+                          fontSize: 15,
+                          fontWeight: '800',
+                          color: isRecordingCropVoice
+                            ? '#b91c1c'
+                            : aiCropPromptState === 'countdown'
+                            ? '#854d0e'
+                            : aiCropPromptState === 'speaking'
+                            ? '#065f46'
+                            : '#166534',
+                        }}>
+                        {isProcessingCropVoice
+                          ? language === 'mr' ? '✨ AI माहिती भरत आहे...' : language === 'hi' ? '✨ AI जानकारी भर रहा है...' : '✨ AI processing speech...'
+                          : isRecordingCropVoice
+                          ? activeQuestionIndex === 0
+                            ? language === 'mr' ? '🔴 माईक सुरू आहे... पिकाचे नाव बोला!' : '🔴 Mic is ON... Speak crop name!'
+                            : activeQuestionIndex === 1
+                            ? language === 'mr' ? '🔴 माईक सुरू आहे... जात / व्हरायटी बोला!' : '🔴 Mic is ON... Speak crop variety!'
+                            : language === 'mr' ? '🔴 माईक सुरू आहे... क्षेत्र (एकर) बोला!' : '🔴 Mic is ON... Speak area in acres!'
+                          : aiCropPromptState === 'countdown'
+                          ? language === 'mr' ? `⏳ प्रश्न ${activeQuestionIndex + 1} विचारत आहे... (${aiCountdown}s)` : language === 'hi' ? `⏳ सवाल ${activeQuestionIndex + 1} पूछने वाला है... (${aiCountdown}s)` : `⏳ Asking Q${activeQuestionIndex + 1} in ${aiCountdown}s...`
+                          : aiCropPromptState === 'speaking'
+                          ? language === 'mr' ? `🤖 AI विचारत आहे (प्रश्न ${activeQuestionIndex + 1}):` : language === 'hi' ? `🤖 AI पूछ रहा है (सवाल ${activeQuestionIndex + 1}):` : `🤖 AI is asking (Q${activeQuestionIndex + 1}):`
+                          : language === 'mr' ? '🎙️ बोलून माहिती भरा (माईक दाबा)' : language === 'hi' ? '🎙️ बोलकर जानकारी भरें' : '🎙️ Speak to Fill (Tap Mic)'}
+                      </Text>
+
+                      {aiCropPromptState === 'speaking' ? (
+                        <Text style={{ fontSize: 13.5, fontWeight: '800', color: '#047857', marginTop: 2 }}>
+                          {`"${aiQuestionPrompt || (activeQuestionIndex === 0 ? 'तुम्ही कोणते रोप किंवा पीक लावत आहात?' : activeQuestionIndex === 1 ? 'कोणती जात लावली?' : 'किती एकर क्षेत्रात लागवड केली?')}"`}
+                        </Text>
+                      ) : (
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: '#64748b', marginTop: 2 }}>
+                          {isRecordingCropVoice
+                            ? language === 'mr' ? 'बोलणे झाल्यावर पुन्हा लाल बटणावर दाबा.' : 'Tap stop button when done speaking.'
+                            : aiCropPromptState === 'countdown'
+                            ? language === 'mr' ? 'तयार राहा! AI विचारेल आणि माईक आपोआप सुरू होईल.' : 'Get ready! AI will speak and mic turns on automatically.'
+                            : language === 'mr' ? 'उदा. "२ एकर केळी G-9" किंवा "दीड एकर टोमॅटो"' : 'e.g. "2 acres G-9 banana" or "1.5 acres tomato"'}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+
+                  {cropVoiceFeedback && (
+                    <View style={{
+                      marginTop: 10,
+                      paddingTop: 8,
+                      borderTopWidth: 1,
+                      borderTopColor: '#dcfce7',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                        <CheckCircle2 size={16} color="#15803d" />
+                        <Text style={{ fontSize: 12.5, fontWeight: '700', color: '#15803d', flex: 1 }}>
+                          {cropVoiceFeedback}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={handleOpenAddCropModal}
+                        style={{
+                          backgroundColor: '#ecfdf5',
+                          borderWidth: 1,
+                          borderColor: '#a7f3d0',
+                          borderRadius: 8,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                        }}>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#047857' }}>
+                          {language === 'mr' ? '🔄 पुन्हा विचारा' : '🔄 Ask Again'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {/* 1-Tap Voice Shortcut Chips */}
+                  {!isRecordingCropVoice && aiCropPromptState !== 'speaking' && (
+                    <View style={{ marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#e2e8f0' }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748b', marginBottom: 6 }}>
+                        {language === 'mr' ? 'किंवा खालील नमुना आवाजावर टॅप करा:' : language === 'hi' ? 'या नीचे दिए गए आवाज पर टैप करें:' : 'Or tap sample voice prompt:'}
+                      </Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                        {[
+                          { label: '🍌 २ एकर केळी (G-9)', text: 'मी दोन एकर शेतात जी-९ केळी लावली आहे' },
+                          { label: '🍅 १.५ एकर टोमॅटो (अभिनव)', text: 'मी दीड एकर अभिनव टोमॅटो लावला आहे' },
+                          { label: '🌱 ३ एकर सोयाबीन (JS-335)', text: 'तीन एकर सोयाबीन जेएस ३३५ पेरले' },
+                          { label: '🌿 ५ एकर कापूस (RCH-659)', text: 'पाच एकर कापूस आरसीएच ६५९ लावला' },
+                        ].map((s, idx) => (
+                          <TouchableOpacity
+                            key={idx}
+                            onPress={() => handleApplyVoiceSample(s.text)}
+                            style={{
+                              backgroundColor: '#ffffff',
+                              borderWidth: 1,
+                              borderColor: '#cbd5e1',
+                              borderRadius: 12,
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                            }}>
+                            <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#334155' }}>
+                              {s.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+
+                {/* Quick Crop Selector Chips */}
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b', marginBottom: 6 }}>
+                    {language === 'mr' ? 'लोकप्रिय पिके (टॅप करा):' : language === 'hi' ? 'लोकप्रिय फसलें चुनें:' : 'Quick Select Crop:'}
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
+                    {[
+                      { name: language === 'mr' ? 'सोयाबीन' : language === 'hi' ? 'सोयाबीन' : 'Soybean', variety: 'JS-335' },
+                      { name: language === 'mr' ? 'कापूस' : language === 'hi' ? 'कपास' : 'Cotton', variety: 'RCH-659' },
+                      { name: language === 'mr' ? 'कांदा' : language === 'hi' ? 'प्याज' : 'Onion', variety: 'पंचगंगा लाल' },
+                      { name: language === 'mr' ? 'टोमॅटो' : language === 'hi' ? 'टमाटर' : 'Tomato', variety: 'अभिनव' },
+                      { name: language === 'mr' ? 'मका' : language === 'hi' ? 'मक्का' : 'Maize', variety: 'पायोनियर' },
+                      { name: language === 'mr' ? 'गहू' : language === 'hi' ? 'गेहूं' : 'Wheat', variety: 'लोकवन' },
+                      { name: language === 'mr' ? 'हरभरा' : language === 'hi' ? 'चना' : 'Gram', variety: 'दिग्विजय' },
+                    ].map((item, idx) => (
+                      <TouchableOpacity
+                        key={idx}
+                        onPress={() => {
+                          setNewCropName(item.name);
+                          setNewCropVariety(item.variety);
+                        }}
+                        style={{
+                          backgroundColor: newCropName === item.name ? '#dcfce7' : '#f1f5f9',
+                          borderWidth: 1,
+                          borderColor: newCropName === item.name ? '#15803d' : '#cbd5e1',
+                          borderRadius: 16,
+                          paddingHorizontal: 12,
+                          paddingVertical: 6,
+                        }}>
+                        <Text
+                          style={{
+                            fontSize: 13,
+                            fontWeight: '700',
+                            color: newCropName === item.name ? '#15803d' : '#334155',
+                          }}>
+                          {item.name}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#475569', marginBottom: 4 }}>
+                  {language === 'mr' ? 'पिकाचे नाव' : language === 'hi' ? 'फसल का नाम' : 'Crop Name'}
+                </Text>
+                <TextInput
+                  style={{ backgroundColor: '#f1f5f9', borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 12 }}
+                  placeholder={language === 'mr' ? 'उदा. टोमॅटो, कापूस, सोयाबीन' : 'e.g. Tomato, Cotton'}
+                  value={newCropName}
+                  onChangeText={setNewCropName}
+                />
+
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#475569', marginBottom: 4 }}>
+                  {language === 'mr' ? 'पिकाची जात / व्हरायटी' : language === 'hi' ? 'किस्म / वैरायटी' : 'Variety'}
+                </Text>
+                <TextInput
+                  style={{ backgroundColor: '#f1f5f9', borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 12 }}
+                  placeholder={language === 'mr' ? 'उदा. सुधारित / अभिनव' : 'e.g. Hybrid / Standard'}
+                  value={newCropVariety}
+                  onChangeText={setNewCropVariety}
+                />
+
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#475569', marginBottom: 4 }}>
+                  {language === 'mr' ? 'क्षेत्र (एकर)' : language === 'hi' ? 'क्षेत्रफल (एकड़)' : 'Area (Acres)'}
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                  {['0.5', '1.0', '1.5', '2.0', '3.0', '5.0'].map((acres) => (
+                    <TouchableOpacity
+                      key={acres}
+                      onPress={() => setNewCropArea(acres)}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: 12,
+                        backgroundColor: newCropArea === acres ? '#dcfce7' : '#f1f5f9',
+                        borderWidth: 1.5,
+                        borderColor: newCropArea === acres ? '#15803d' : '#cbd5e1',
+                      }}>
+                      <Text style={{ fontSize: 12, fontWeight: '800', color: newCropArea === acres ? '#15803d' : '#334155' }}>
+                        {acres} {language === 'mr' ? 'एकर' : 'Acre'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <TextInput
+                  style={{ backgroundColor: '#f1f5f9', borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 16 }}
+                  placeholder="1.0"
+                  keyboardType="numeric"
+                  value={newCropArea}
+                  onChangeText={setNewCropArea}
+                />
+
+                <TouchableOpacity
+                  style={{ backgroundColor: '#15803d', paddingVertical: 14, borderRadius: 12, alignItems: 'center' }}
+                  onPress={handleSaveCrop}>
+                  <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 16 }}>
+                    {language === 'mr' ? 'पीक जतन करा' : language === 'hi' ? 'फसल सहेजें' : 'Save Crop'}
                   </Text>
                 </TouchableOpacity>
-              ))}
+              </ScrollView>
             </View>
-            <TextInput
-              style={{ backgroundColor: '#f1f5f9', borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 16 }}
-              placeholder="1.0"
-              keyboardType="numeric"
-              value={newCropArea}
-              onChangeText={setNewCropArea}
-            />
-
-            <TouchableOpacity
-              style={{ backgroundColor: '#15803d', paddingVertical: 14, borderRadius: 12, alignItems: 'center' }}
-              onPress={handleSaveCrop}>
-              <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 16 }}>
-                {language === 'mr' ? 'पीक जतन करा' : language === 'hi' ? 'फसल सहेजें' : 'Save Crop'}
-              </Text>
-            </TouchableOpacity>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );

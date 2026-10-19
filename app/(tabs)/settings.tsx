@@ -62,17 +62,17 @@ function SkeletonBox({
   borderRadius?: number;
   style?: StyleProp<ViewStyle>;
 }) {
-  const pulseAnim = useRef(new Animated.Value(0.35));
+  const [pulseAnim] = useState(() => new Animated.Value(0.35));
 
   useEffect(() => {
     const anim = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim.current, {
+        Animated.timing(pulseAnim, {
           toValue: 0.85,
           duration: 750,
           useNativeDriver: true,
         }),
-        Animated.timing(pulseAnim.current, {
+        Animated.timing(pulseAnim, {
           toValue: 0.35,
           duration: 750,
           useNativeDriver: true,
@@ -91,7 +91,7 @@ function SkeletonBox({
           height,
           borderRadius,
           backgroundColor: '#e2e8f0',
-          opacity: pulseAnim.current,
+          opacity: pulseAnim,
         },
         style,
       ]}

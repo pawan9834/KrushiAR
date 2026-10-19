@@ -34,7 +34,7 @@ import {
   BarChart3,
 } from 'lucide-react-native';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -50,6 +50,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Speech from 'expo-speech';
+import { createAudioPlayer, AudioPlayer } from 'expo-audio';
 
 export default function HistoryMarketScreen() {
   const insets = useSafeAreaInsets();
@@ -70,6 +71,21 @@ export default function HistoryMarketScreen() {
   const [selectedCropFilter, setSelectedCropFilter] = useState<string>('all');
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('all');
   const [speakingActivityId, setSpeakingActivityId] = useState<string | null>(null);
+  const currentAudioPlayerRef = useRef<AudioPlayer | null>(null);
+
+  // Clean up audio on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        if (Speech) Speech.stop();
+        if (currentAudioPlayerRef.current) {
+          currentAudioPlayerRef.current.pause();
+          currentAudioPlayerRef.current.remove();
+          currentAudioPlayerRef.current = null;
+        }
+      } catch { }
+    };
+  }, []);
 
   // --- Live Mandi State ---
   const [mandiItems, setMandiItems] = useState<MandiPriceItem[]>([]);
@@ -161,7 +177,10 @@ export default function HistoryMarketScreen() {
 
   useEffect(() => {
     if (activeMode === 'mandi') {
-      loadMandiData();
+      const timer = setTimeout(() => {
+        loadMandiData();
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [activeMode, loadMandiData]);
 
@@ -202,27 +221,60 @@ export default function HistoryMarketScreen() {
     );
   };
 
-  // Speech TTS for Activity
-  const handleToggleSpeakActivity = (id: string, textToSpeak: string) => {
-    if (!Speech) return;
+  // Voice Recording / Speech Audio for Activity (Plays farmer's voice if available)
+  const handleToggleSpeakActivity = (id: string, textToSpeak: string, audioUri?: string) => {
     try {
+      // 1. If currently playing this same activity, toggle OFF / stop
       if (speakingActivityId === id) {
-        Speech.stop();
+        if (Speech) Speech.stop();
+        if (currentAudioPlayerRef.current) {
+          currentAudioPlayerRef.current.pause();
+          currentAudioPlayerRef.current.remove();
+          currentAudioPlayerRef.current = null;
+        }
         setSpeakingActivityId(null);
-      } else {
-        Speech.stop();
-        setSpeakingActivityId(id);
-        const speechLang = language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-IN';
-        Speech.speak(textToSpeak, {
-          language: speechLang,
-          rate: 0.88,
-          pitch: 1.0,
-          onDone: () => setSpeakingActivityId(null),
-          onStopped: () => setSpeakingActivityId(null),
-          onError: () => setSpeakingActivityId(null),
-        });
+        return;
       }
-    } catch {
+
+      // 2. Stop any existing voice or speech playback
+      if (Speech) Speech.stop();
+      if (currentAudioPlayerRef.current) {
+        currentAudioPlayerRef.current.pause();
+        currentAudioPlayerRef.current.remove();
+        currentAudioPlayerRef.current = null;
+      }
+
+      // 3. If farmer's recorded voice exists, PLAY REAL VOICE!
+      if (audioUri) {
+        console.log('▶️ Playing farmer voice recording from audioUri:', audioUri);
+        setSpeakingActivityId(id);
+        const player = createAudioPlayer(audioUri);
+        currentAudioPlayerRef.current = player;
+        player.addListener('playbackStatusUpdate', (status) => {
+          if (status.didJustFinish) {
+            console.log('⏹️ Farmer voice recording finished.');
+            setSpeakingActivityId(null);
+            player.remove();
+            currentAudioPlayerRef.current = null;
+          }
+        });
+        player.play();
+        return;
+      }
+
+      // 4. Fallback to TTS if no recorded audio was attached
+      setSpeakingActivityId(id);
+      const speechLang = language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-IN';
+      Speech.speak(textToSpeak, {
+        language: speechLang,
+        rate: 0.88,
+        pitch: 1.0,
+        onDone: () => setSpeakingActivityId(null),
+        onStopped: () => setSpeakingActivityId(null),
+        onError: () => setSpeakingActivityId(null),
+      });
+    } catch (err) {
+      console.warn('handleToggleSpeakActivity error:', err);
       setSpeakingActivityId(null);
     }
   };
@@ -678,13 +730,13 @@ export default function HistoryMarketScreen() {
                         </View>
 
                         <View style={styles.cardActionsRow}>
-                          {/* 🔊 Audio Speak */}
+                          {/* 🔊 Audio Speak (Farmer Voice or TTS) */}
                           <TouchableOpacity
                             style={[
                               styles.actAudioBtn,
                               isSpeakingThis && styles.actAudioBtnActive,
                             ]}
-                            onPress={() => handleToggleSpeakActivity(item.id, spokenText)}
+                            onPress={() => handleToggleSpeakActivity(item.id, spokenText, item.audioUri)}
                             activeOpacity={0.7}>
                             {isSpeakingThis ? (
                               <Square size={14} color="#ffffff" fill="#ffffff" />

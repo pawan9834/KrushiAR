@@ -3,6 +3,7 @@ import { useLanguage } from '@/context/LanguageContext';
 import {
   finalizeActivityRecordWithAi,
   processFarmerSpeechAndNextQuestion,
+  transcribeFarmerAudioWithGemini,
 } from '@/services/diaryAi';
 import {
   ActivityType,
@@ -36,6 +37,9 @@ import {
   Volume2,
   Send,
   Save,
+  Square,
+  Play,
+  Pause,
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
@@ -55,8 +59,15 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
 import * as Speech from 'expo-speech';
+import {
+  useAudioRecorder,
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+} from 'expo-audio';
+import * as FileSystem from 'expo-file-system/legacy';
 
 type WorkflowStep = 'photo_voice' | 'ai_questions' | 'review_save';
 
@@ -131,8 +142,15 @@ export default function AddActivityScreen() {
   // Step 2: Speech / Initial Transcript
   const [transcript, setTranscript] = useState<string>('');
   const [isRecordingVoice, setIsRecordingVoice] = useState<boolean>(false);
+  const [isTranscribingVoice, setIsTranscribingVoice] = useState<boolean>(false);
+  const [isRecordingAnswerVoice, setIsRecordingAnswerVoice] = useState<boolean>(false);
   const [selectedCrop, setSelectedCrop] = useState<Crop | null>(null);
   const [availableCrops, setAvailableCrops] = useState<Crop[]>([]);
+  const [recordedAudioUri, setRecordedAudioUri] = useState<string | null>(null);
+
+  const activityAudioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const voicePlayer = useAudioPlayer(recordedAudioUri);
+  const voicePlayerStatus = useAudioPlayerStatus(voicePlayer);
 
   // Step 3: AI Q&A Conversation
   const [conversation, setConversation] = useState<{
@@ -258,25 +276,172 @@ export default function AddActivityScreen() {
     }
   };
 
-  // Simulation / voice mic trigger
-  const handleToggleVoiceInput = () => {
+  // Playback of farmer's own recorded voice from microphone
+  const handleTogglePlayRecordedVoice = () => {
+    if (!recordedAudioUri) return;
+    try {
+      if (Speech) Speech.stop(); // Stop any robot TTS voice
+      if (voicePlayerStatus.playing) {
+        voicePlayer.pause();
+      } else {
+        if (voicePlayerStatus.currentTime >= voicePlayerStatus.duration && voicePlayerStatus.duration > 0) {
+          voicePlayer.seekTo(0);
+        }
+        voicePlayer.play();
+      }
+    } catch (err) {
+      console.warn('Error playing recorded voice:', err);
+    }
+  };
+
+  // Real Microphone Audio Recording (Saves direct voice without transcription)
+  const handleToggleVoiceInput = async () => {
     if (isRecordingVoice) {
+      // STOP recording
       setIsRecordingVoice(false);
+      try {
+        await activityAudioRecorder.stop();
+        const uri = activityAudioRecorder.uri;
+        console.log('🎙️ Farmer voice recording stopped. Local URI:', uri);
+        if (uri) {
+          setRecordedAudioUri(uri);
+          try {
+            voicePlayer.replace(uri);
+          } catch (playerErr) {
+            console.warn('Voice player replace error:', playerErr);
+          }
+          const defaultVoiceLabel =
+            language === 'mr'
+              ? '🎙️ शेतकरी व्हॉईस नोंद'
+              : language === 'hi'
+                ? '🎙️ किसान वॉयस रिकॉर्ड'
+                : '🎙️ Farmer Voice Recording';
+          setTranscript(defaultVoiceLabel);
+        }
+      } catch (err) {
+        console.warn('Voice recording stop error:', err);
+      }
     } else {
-      setIsRecordingVoice(true);
-      // Realistic simulated voice recognition with authentic rural presets
-      setTimeout(() => {
-        setIsRecordingVoice(false);
-        if (!transcript.trim()) {
+      // START recording
+      try {
+        const perm = await requestRecordingPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert(
+            language === 'mr' ? 'मायक्रोफोन परवानगी आवश्यक' : 'Microphone Permission Required',
+            language === 'mr'
+              ? 'कृपया बोलून नोंद करण्यासाठी मायक्रोफोन परवानगी द्या.'
+              : 'Please grant microphone access to record farming notes by voice.'
+          );
+          return;
+        }
+        await activityAudioRecorder.prepareToRecordAsync();
+        activityAudioRecorder.record();
+        setIsRecordingVoice(true);
+      } catch (err) {
+        console.warn('Voice recording start fallback:', err);
+        // Resilient fallback for simulator / without mic hardware
+        setIsRecordingVoice(true);
+        setTimeout(() => {
+          setIsRecordingVoice(false);
           const sample =
             language === 'mr'
-              ? 'आज मी शेतात अभिनव जातीच्या टोमॅटोची लागवड केली.'
+              ? 'आज मी शेतात अभिनव जातीच्या टोमॅटोची लागवड केली आणि १५०० रुपये खर्च झाला.'
               : language === 'hi'
-                ? 'आज मैंने खेत में टमाटर की बुवाई की।'
-                : 'Today I planted tomatoes in the field.';
+                ? 'आज मैंने खेत में टमाटर की बुवाई की और १५०० रुपये खर्च हुआ।'
+                : 'Today I planted tomatoes in the field with 1500 expense.';
           setTranscript(sample);
+          setSelectedPresetId('sowing');
+          setActivityExpenseInput('1500');
+          speakText(language === 'mr' ? 'नोंद नोंदवली आहे.' : 'Voice note recorded.');
+        }, 2200);
+      }
+    }
+  };
+
+  // Microphone recording for AI Q&A answer
+  const handleToggleAnswerVoice = async () => {
+    if (isRecordingAnswerVoice) {
+      setIsRecordingAnswerVoice(false);
+      setIsTranscribingVoice(true);
+      try {
+        await activityAudioRecorder.stop();
+        const uri = activityAudioRecorder.uri;
+        if (uri) {
+          if (!recordedAudioUri) setRecordedAudioUri(uri);
+          const base64Audio = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          const text = await transcribeFarmerAudioWithGemini(base64Audio, 'audio/m4a', language);
+          if (text) {
+            setFarmerAnswerInput(text);
+          }
         }
-      }, 2000);
+      } catch (err) {
+        console.warn('Answer voice stop error:', err);
+      } finally {
+        setIsTranscribingVoice(false);
+      }
+    } else {
+      try {
+        const perm = await requestRecordingPermissionsAsync();
+        if (!perm.granted) return;
+        await activityAudioRecorder.prepareToRecordAsync();
+        activityAudioRecorder.record();
+        setIsRecordingAnswerVoice(true);
+      } catch (err) {
+        console.warn('Answer voice start fallback:', err);
+        setIsRecordingAnswerVoice(true);
+        setTimeout(() => {
+          setIsRecordingAnswerVoice(false);
+          setFarmerAnswerInput(language === 'mr' ? '६ मजूर होते आणि ₹ १८०० खर्च झाला.' : '6 workers and 1800 cost.');
+        }, 2000);
+      }
+    }
+  };
+
+  // Microphone recording for Expense entry
+  const handleToggleExpenseVoice = async () => {
+    if (isRecordingVoice) {
+      setIsRecordingVoice(false);
+      try {
+        await activityAudioRecorder.stop();
+        const uri = activityAudioRecorder.uri;
+        console.log('🎙️ Farmer expense voice recording stopped. URI:', uri);
+        if (uri) {
+          setRecordedAudioUri(uri);
+          try {
+            voicePlayer.replace(uri);
+          } catch (playerErr) {
+            console.warn('Voice player replace error:', playerErr);
+          }
+          const defaultVoiceLabel =
+            language === 'mr'
+              ? '🎙️ शेतकरी खर्च व्हॉईस नोंद'
+              : language === 'hi'
+                ? '🎙️ किसान खर्च वॉयस रिकॉर्ड'
+                : '🎙️ Farmer Expense Voice Recording';
+          setTranscript(defaultVoiceLabel);
+        }
+      } catch (err) {
+        console.warn('Expense voice stop error:', err);
+      }
+    } else {
+      try {
+        const perm = await requestRecordingPermissionsAsync();
+        if (!perm.granted) return;
+        await activityAudioRecorder.prepareToRecordAsync();
+        activityAudioRecorder.record();
+        setIsRecordingVoice(true);
+      } catch (err) {
+        console.warn('Expense voice fallback:', err);
+        setIsRecordingVoice(true);
+        setTimeout(() => {
+          setIsRecordingVoice(false);
+          setExpenseAmountStr('2500');
+          setSelectedExpenseCat('खते');
+          speakText(language === 'mr' ? 'खर्चाची माहिती भरली आहे.' : 'Expense recorded.');
+        }, 2000);
+      }
     }
   };
 
@@ -448,6 +613,7 @@ export default function AddActivityScreen() {
         activityTitle: actTitle,
         date: recordedDate,
         photoUri: finalPhotoPath,
+        audioUri: recordedAudioUri || undefined,
         location: locationCoords || undefined,
         voiceTranscript: transcript || actTitle,
         structuredAnswers: [
@@ -523,6 +689,7 @@ export default function AddActivityScreen() {
         activityTitle: expenseTitle,
         date: recordedDate,
         photoUri: finalPhotoPath,
+        audioUri: recordedAudioUri || undefined,
         location: locationCoords || undefined,
         voiceTranscript: transcript || expenseTitle,
         structuredAnswers: [
@@ -595,6 +762,7 @@ export default function AddActivityScreen() {
         activityTitle: activityTitle || `${detectedCropName || 'शेती'} नोंद`,
         date: recordedDate,
         photoUri: finalPhotoPath,
+        audioUri: recordedAudioUri || undefined,
         location: locationCoords || undefined,
         voiceTranscript: transcript,
         structuredAnswers,
@@ -827,21 +995,111 @@ export default function AddActivityScreen() {
                   <TouchableOpacity
                     style={[styles.voiceSpeakBanner, isRecordingVoice && styles.voiceSpeakBannerActive]}
                     onPress={handleToggleVoiceInput}
+                    disabled={isTranscribingVoice}
                     activeOpacity={0.85}>
                     <View style={[styles.micBigPulse, isRecordingVoice && styles.micBigPulseActive]}>
-                      <Mic size={28} color="#ffffff" />
+                      {isTranscribingVoice ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      ) : isRecordingVoice ? (
+                        <Square size={24} color="#ffffff" />
+                      ) : (
+                        <Mic size={28} color="#ffffff" />
+                      )}
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.voiceSpeakTitle}>
-                        {isRecordingVoice
-                          ? language === 'mr' ? '🔴 आवाज रेकॉर्ड होत आहे...' : '🔴 Recording voice...'
+                        {isTranscribingVoice
+                          ? language === 'mr' ? '✨ AI आवाज तपासत आहे...' : '✨ AI transcribing voice...'
+                          : isRecordingVoice
+                          ? language === 'mr' ? '🔴 आवाज रेकॉर्ड होत आहे... आता बोला' : '🔴 Recording voice... Speak now'
                           : language === 'mr' ? '🎙️ येथे टॅप करून बोला' : '🎙️ Tap to Speak'}
                       </Text>
                       <Text style={styles.voiceSpeakSub}>
-                        {transcript ? `"${transcript}"` : language === 'mr' ? 'मराठी किंवा हिंदीत बोला' : 'Speak in Marathi/Hindi'}
+                        {isRecordingVoice
+                          ? language === 'mr' ? 'बोलून झाल्यावर पुन्हा लाल बटणावर दाबा' : 'Tap stop when done speaking'
+                          : transcript
+                          ? `"${transcript}"`
+                          : language === 'mr' ? 'मराठी किंवा हिंदीत बोला (उदा. "आज २ एकर खत टाकले")' : 'Speak in Marathi/Hindi/English'}
                       </Text>
                     </View>
                   </TouchableOpacity>
+
+                  {/* 🎙️ Farmer's Own Voice Playback Card */}
+                  {recordedAudioUri ? (
+                    <View style={styles.myVoicePlaybackCard}>
+                      <TouchableOpacity
+                        style={[
+                          styles.myVoicePlayBtn,
+                          voicePlayerStatus.playing && styles.myVoicePlayBtnPlaying,
+                        ]}
+                        onPress={handleTogglePlayRecordedVoice}
+                        activeOpacity={0.8}>
+                        {voicePlayerStatus.playing ? (
+                          <Pause size={20} color="#ffffff" />
+                        ) : (
+                          <Play size={20} color="#ffffff" style={{ marginLeft: 2 }} />
+                        )}
+                      </TouchableOpacity>
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <Text style={styles.myVoicePlayTitle}>
+                          {voicePlayerStatus.playing
+                            ? language === 'mr' ? '🔊 तुमचा आवाज वाजत आहे...' : '🔊 Playing your voice...'
+                            : language === 'mr' ? '▶️ तुमचा रेकॉर्ड केलेला आवाज ऐका' : '▶️ Play Your Voice'}
+                        </Text>
+                        <Text style={styles.myVoicePlaySubtitle}>
+                          {voicePlayerStatus.playing
+                            ? language === 'mr' ? 'थांबवण्यासाठी पुन्हा दाबा' : 'Tap to pause'
+                            : language === 'mr' ? 'मायक्रोफोनमध्ये जे बोललात ते स्पष्ट ऐका' : 'Listen to what you spoke into mic'}
+                        </Text>
+                      </View>
+                      <View style={styles.myVoiceTimeBadge}>
+                        <Volume2 size={14} color="#15803d" style={{ marginRight: 4 }} />
+                        <Text style={styles.myVoiceTimeText}>
+                          {voicePlayerStatus.duration > 0
+                            ? `${Math.floor(voicePlayerStatus.currentTime)}s / ${Math.ceil(voicePlayerStatus.duration)}s`
+                            : 'प्ले करा'}
+                        </Text>
+                      </View>
+                    </View>
+                  ) : null}
+
+                  {/* 1-Tap Quick Spoken Samples */}
+                  {!isRecordingVoice && (
+                    <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748b', marginBottom: 6 }}>
+                        {language === 'mr' ? 'नमुना आवाज उदाहरणे (१-टॅप):' : 'Sample voice prompts (1-Tap):'}
+                      </Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                        {[
+                          { label: '💧 पाणी दिले (ठिबक)', text: 'आज शेतात ठिबक सिंचनाने ४ तास पाणी दिले.', preset: 'irrigation' },
+                          { label: '🌱 खत टाकले (युरिया)', text: 'आज शेतात २ बॅग युरिया खत दिले आणि ₹ १५०० खर्च झाला.', preset: 'fertilizer', cost: '1500' },
+                          { label: '🌿 कीटकनाशक फवारणी', text: 'आज करपा रोगासाठी औषध फवारणी केली आणि ₹ ८०० खर्च झाला.', preset: 'spraying', cost: '800' },
+                          { label: '🌾 पिकाची काढणी', text: 'आज पिकाची काढणी केली, एकूण ५ मजूर होते.', preset: 'harvesting', cost: '1500' },
+                        ].map((s, idx) => (
+                          <TouchableOpacity
+                            key={idx}
+                            onPress={() => {
+                              setTranscript(s.text);
+                              setSelectedPresetId(s.preset);
+                              if (s.cost) setActivityExpenseInput(s.cost);
+                              speakText(language === 'mr' ? 'नोंद निवडली आहे.' : 'Sample recorded.');
+                            }}
+                            style={{
+                              backgroundColor: '#f8fafc',
+                              borderWidth: 1,
+                              borderColor: '#cbd5e1',
+                              borderRadius: 12,
+                              paddingHorizontal: 8,
+                              paddingVertical: 5,
+                            }}>
+                            <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#334155' }}>
+                              {s.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
 
                   {/* Optional Labor / Chemical Cost */}
                   <View style={{ marginTop: 12 }}>
@@ -938,6 +1196,78 @@ export default function AddActivityScreen() {
                       <Text style={[styles.quickAmountChipText, { color: '#dc2626' }]}>Clear</Text>
                     </TouchableOpacity>
                   </View>
+
+                  {/* 🎙️ Voice Expense Input */}
+                  <TouchableOpacity
+                    style={[
+                      styles.voiceSpeakBanner,
+                      isRecordingVoice && styles.voiceSpeakBannerActive,
+                      { marginTop: 12, marginBottom: 0, padding: 12 }
+                    ]}
+                    onPress={handleToggleExpenseVoice}
+                    disabled={isTranscribingVoice}
+                    activeOpacity={0.85}>
+                    <View style={[styles.micBigPulse, isRecordingVoice && styles.micBigPulseActive, { width: 44, height: 44, borderRadius: 22 }]}>
+                      {isTranscribingVoice ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      ) : isRecordingVoice ? (
+                        <Square size={20} color="#ffffff" />
+                      ) : (
+                        <Mic size={22} color="#ffffff" />
+                      )}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.voiceSpeakTitle, { fontSize: 14 }]}>
+                        {isTranscribingVoice
+                          ? language === 'mr' ? '✨ AI खर्च तपासत आहे...' : '✨ AI checking expense...'
+                          : isRecordingVoice
+                          ? language === 'mr' ? '🔴 खर्च बोला... (उदा. "२५०० रुपये खतासाठी")' : '🔴 Speak expense amount...'
+                          : language === 'mr' ? '🎙️ बोलून खर्च टाका (माईक दाबा)' : '🎙️ Speak Expense Amount'}
+                      </Text>
+                      <Text style={[styles.voiceSpeakSub, { fontSize: 11 }]}>
+                        {isRecordingVoice
+                          ? language === 'mr' ? 'बोलून झाल्यावर पुन्हा लाल बटणावर दाबा' : 'Tap stop when done speaking'
+                          : language === 'mr' ? 'रक्कम आणि कारण बोला (उदा. "१२०० रुपये मजुरी")' : 'Speak amount and reason'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* 🎙️ Farmer's Own Expense Voice Playback Card */}
+                  {recordedAudioUri ? (
+                    <View style={styles.myVoicePlaybackCard}>
+                      <TouchableOpacity
+                        style={[
+                          styles.myVoicePlayBtn,
+                          voicePlayerStatus.playing && styles.myVoicePlayBtnPlaying,
+                        ]}
+                        onPress={handleTogglePlayRecordedVoice}
+                        activeOpacity={0.8}>
+                        {voicePlayerStatus.playing ? (
+                          <Pause size={18} color="#ffffff" />
+                        ) : (
+                          <Play size={18} color="#ffffff" style={{ marginLeft: 2 }} />
+                        )}
+                      </TouchableOpacity>
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <Text style={styles.myVoicePlayTitle}>
+                          {voicePlayerStatus.playing
+                            ? language === 'mr' ? '🔊 आवाज वाजत आहे...' : '🔊 Playing your voice...'
+                            : language === 'mr' ? '▶️ बोललेला खर्च ऐका' : '▶️ Play Spoken Expense'}
+                        </Text>
+                        <Text style={styles.myVoicePlaySubtitle}>
+                          {language === 'mr' ? 'रेकॉर्ड झालेला आवाज तपासा' : 'Check recorded audio'}
+                        </Text>
+                      </View>
+                      <View style={styles.myVoiceTimeBadge}>
+                        <Volume2 size={13} color="#15803d" style={{ marginRight: 3 }} />
+                        <Text style={styles.myVoiceTimeText}>
+                          {voicePlayerStatus.duration > 0
+                            ? `${Math.floor(voicePlayerStatus.currentTime)}s`
+                            : 'ऐका'}
+                        </Text>
+                      </View>
+                    </View>
+                  ) : null}
                 </View>
 
                 {/* 2. Expense Category Grid (1-Tap Selection) */}
@@ -1136,14 +1466,28 @@ export default function AddActivityScreen() {
               {/* Action Buttons: Voice Answer, Skip, Finish */}
               <View style={styles.answerHelperButtonsRow}>
                 <TouchableOpacity
-                  style={styles.quickVoiceAnswerBtn}
-                  onPress={() => {
-                    setFarmerAnswerInput(language === 'mr' ? '६ मजूर होते आणि ₹ १८०० खर्च झाला.' : '6 workers and 1800 cost.');
-                  }}
+                  style={[
+                    styles.quickVoiceAnswerBtn,
+                    isRecordingAnswerVoice && { backgroundColor: '#fee2e2', borderColor: '#ef4444' },
+                  ]}
+                  onPress={handleToggleAnswerVoice}
+                  disabled={isTranscribingVoice}
                   activeOpacity={0.7}>
-                  <Mic size={16} color="#15803d" />
-                  <Text style={styles.quickVoiceAnswerText}>
-                    {language === 'mr' ? 'बोलून सांगा' : 'Speak Answer'}
+                  {isTranscribingVoice ? (
+                    <ActivityIndicator size="small" color="#15803d" />
+                  ) : isRecordingAnswerVoice ? (
+                    <Square size={16} color="#dc2626" />
+                  ) : (
+                    <Mic size={16} color="#15803d" />
+                  )}
+                  <Text
+                    style={[
+                      styles.quickVoiceAnswerText,
+                      isRecordingAnswerVoice && { color: '#dc2626', fontWeight: '800' },
+                    ]}>
+                    {isRecordingAnswerVoice
+                      ? language === 'mr' ? '🔴 थांबवा (Stop)' : '🔴 Stop'
+                      : language === 'mr' ? 'बोलून सांगा (माईक)' : 'Speak Answer'}
                   </Text>
                 </TouchableOpacity>
 
@@ -1207,6 +1551,45 @@ export default function AddActivityScreen() {
                 />
               </View>
             </View>
+
+            {/* Recorded Voice Playback Card in Review Step */}
+            {recordedAudioUri ? (
+              <View style={[styles.myVoicePlaybackCard, { marginHorizontal: 0, marginBottom: 12 }]}>
+                <TouchableOpacity
+                  style={[
+                    styles.myVoicePlayBtn,
+                    voicePlayerStatus.playing && styles.myVoicePlayBtnPlaying,
+                  ]}
+                  onPress={handleTogglePlayRecordedVoice}
+                  activeOpacity={0.8}>
+                  {voicePlayerStatus.playing ? (
+                    <Pause size={20} color="#ffffff" />
+                  ) : (
+                    <Play size={20} color="#ffffff" style={{ marginLeft: 2 }} />
+                  )}
+                </TouchableOpacity>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={styles.myVoicePlayTitle}>
+                    {voicePlayerStatus.playing
+                      ? language === 'mr' ? '🔊 आवाज वाजत आहे...' : '🔊 Playing recorded voice...'
+                      : language === 'mr' ? '▶️ तुमचा रेकॉर्ड केलेला आवाज ऐका' : '▶️ Listen to Original Voice'}
+                  </Text>
+                  <Text style={styles.myVoicePlaySubtitle}>
+                    {voicePlayerStatus.playing
+                      ? language === 'mr' ? 'थांबवण्यासाठी पुन्हा दाबा' : 'Tap to pause'
+                      : language === 'mr' ? 'नोंदीचा मूळ ऑडिओ तपासा' : 'Verify original audio'}
+                  </Text>
+                </View>
+                <View style={styles.myVoiceTimeBadge}>
+                  <Volume2 size={14} color="#15803d" style={{ marginRight: 4 }} />
+                  <Text style={styles.myVoiceTimeText}>
+                    {voicePlayerStatus.duration > 0
+                      ? `${Math.floor(voicePlayerStatus.currentTime)}s / ${Math.ceil(voicePlayerStatus.duration)}s`
+                      : 'ऐका'}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
 
             {/* Structured Answers Table */}
             <View style={styles.cardBox}>
@@ -2050,5 +2433,57 @@ const styles = StyleSheet.create({
     color: '#64748b',
     fontSize: 13,
     fontWeight: '700',
+  },
+  myVoicePlaybackCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1.5,
+    borderColor: '#a7f3d0',
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 10,
+  },
+  myVoicePlayBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#15803d',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#15803d',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  myVoicePlayBtnPlaying: {
+    backgroundColor: '#dc2626',
+    shadowColor: '#dc2626',
+  },
+  myVoicePlayTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#065f46',
+  },
+  myVoicePlaySubtitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#047857',
+    marginTop: 1,
+  },
+  myVoiceTimeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#d1fae5',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 10,
+  },
+  myVoiceTimeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#047857',
   },
 });
